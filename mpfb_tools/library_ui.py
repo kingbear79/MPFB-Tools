@@ -29,8 +29,9 @@ def choose(scene, category, key):
 
 
 def current(context, category):
+    key = getattr(context.scene, SELECTIONS[category])
     return catalog.lookup(directory(context), category,
-                          key=getattr(context.scene, SELECTIONS[category]))
+                          key="H01" if category == "H" and key == "classic_side_part" else key)
 
 
 def entry_icon(entry, category):
@@ -150,13 +151,14 @@ class MPFBTOOLS_OT_delete_library_entry(bpy.types.Operator):
 
 def publish(operator, context, group, name, confirmed, writer):
     root = directory(context)
-    found = catalog.lookup(root, group, name=name)
-    if found is not None and confirmed != found[0]:
-        return bpy.ops.mpfb_tools.overwrite_library_entry(
-            "INVOKE_DEFAULT", group=group, name=name.strip(), key=found[0],
-            picked_object=context.active_object.name,
-        )
     try:
+        found = catalog.lookup(root, group, name=name)
+        if found is not None and confirmed != found[0]:
+            status = bpy.ops.mpfb_tools.overwrite_library_entry(
+                "INVOKE_DEFAULT", group=group, name=name.strip(), key=found[0],
+                picked_object=context.active_object.name,
+            )
+            return {"CANCELLED"} if status == {"CANCELLED"} else {"FINISHED"}
         key = catalog.save(root, group, name, confirmed, writer)
         choose(context.scene, group, key)
         operator.report({"INFO"}, f"„{name.strip()}“ gespeichert")
@@ -419,7 +421,7 @@ def register():
     bpy.types.WindowManager.mpfb_tools_cloud_model = bpy.props.StringProperty(name="Bildanalyse-Modell", options={"SKIP_SAVE"})
     bpy.types.WindowManager.mpfb_tools_cloud_key = bpy.props.StringProperty(name="API-Schlüssel", subtype="PASSWORD", options={"SKIP_SAVE"})
     if not bpy.app.background:
-        bpy.app.timers.register(initialize, first_interval=.2)
+        bpy.app.timers.register(initialize, first_interval=.2, persistent=True)
     bpy.app.handlers.save_post.append(on_save)
 
 

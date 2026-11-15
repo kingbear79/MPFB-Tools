@@ -54,7 +54,7 @@ def checkpoint(root):
 def mark_dirty(root):
     _dirty.add(root)
     if not bpy.app.background and not bpy.app.timers.is_registered(_backup):
-        bpy.app.timers.register(_backup, first_interval=.8)
+        bpy.app.timers.register(_backup, first_interval=.8, persistent=True)
 
 
 def _backup():
