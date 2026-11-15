@@ -1,0 +1,13 @@
+schema_version = "1.0.0"
+id = "mpfb_tools"
+version = "2.0.0"
+name = "MPFB-Tools"
+tagline = "Manage reusable figures, grooms and assets for MPFB"
+maintainer = "MPFB-Tools contributors"
+type = "add-on"
+tags = ["Object"]
+blender_version_min = "4.5.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+files = "Read and write the user-selected asset library and backups"

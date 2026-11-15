@@ -1,0 +1,215 @@
+{
+  "preset": {
+    "clothes": [],
+    "color_adjustments": {},
+    "expressions": [],
+    "eyebrows": "",
+    "eyelashes": "",
+    "eyes": "",
+    "eyes_material_settings": {},
+    "eyes_material_type": "MAKESKIN",
+    "hair": "",
+    "makeup": [],
+    "phenotype": {
+      "age": 0.5,
+      "cupsize": 0.550000011920929,
+      "firmness": 0.699999988079071,
+      "gender": 1.0,
+      "height": 0.6000000238418579,
+      "muscle": 0.8999999761581421,
+      "proportions": 0.699999988079071,
+      "race": {
+        "african": 0.0,
+        "asian": 0.0,
+        "caucasian": 1.0
+      },
+      "weight": 0.699999988079071
+    },
+    "proxy": "",
+    "rig": "rigify.human_toes",
+    "skin_material_settings": {},
+    "skin_material_type": "NONE",
+    "skin_mhmat": "",
+    "targets": [
+      {
+        "target": "l-lowerarm-fat-incr",
+        "value": 1.0
+      },
+      {
+        "target": "r-lowerarm-fat-incr",
+        "value": 1.0
+      },
+      {
+        "target": "l-lowerarm-muscle-incr",
+        "value": 1.0
+      },
+      {
+        "target": "r-lowerarm-muscle-incr",
+        "value": 1.0
+      },
+      {
+        "target": "l-upperarm-fat-incr",
+        "value": 1.0
+      },
+      {
+        "target": "r-upperarm-fat-incr",
+        "value": 1.0
+      },
+      {
+        "target": "l-upperarm-muscle-incr",
+        "value": 1.0
+      },
+      {
+        "target": "r-upperarm-muscle-incr",
+        "value": 1.0
+      },
+      {
+        "target": "nipple-point-incr",
+        "value": 0.699999988079071
+      },
+      {
+        "target": "buttocks-volume-incr",
+        "value": 1.0
+      },
+      {
+        "target": "head-scale-vert-incr",
+        "value": 0.5
+      },
+      {
+        "target": "head-square",
+        "value": 0.5
+      },
+      {
+        "target": "head-fat-incr",
+        "value": 0.30000001192092896
+      },
+      {
+        "target": "head-rectangular",
+        "value": 0.20000000298023224
+      },
+      {
+        "target": "hip-scale-depth-incr",
+        "value": 0.30000001192092896
+      },
+      {
+        "target": "hip-scale-horiz-incr",
+        "value": 0.30000001192092896
+      },
+      {
+        "target": "l-leg-valgus-decr",
+        "value": 0.20000000298023224
+      },
+      {
+        "target": "r-leg-valgus-decr",
+        "value": 0.20000000298023224
+      },
+      {
+        "target": "l-lowerleg-fat-incr",
+        "value": 1.0
+      },
+      {
+        "target": "r-lowerleg-fat-incr",
+        "value": 1.0
+      },
+      {
+        "target": "l-lowerleg-muscle-incr",
+        "value": 1.0
+      },
+      {
+        "target": "r-lowerleg-muscle-incr",
+        "value": 1.0
+      },
+      {
+        "target": "l-upperleg-fat-incr",
+        "value": 1.0
+      },
+      {
+        "target": "r-upperleg-fat-incr",
+        "value": 1.0
+      },
+      {
+        "target": "l-upperleg-muscle-incr",
+        "value": 0.6000000238418579
+      },
+      {
+        "target": "r-upperleg-muscle-incr",
+        "value": 0.6000000238418579
+      },
+      {
+        "target": "neck-back-scale-depth-incr",
+        "value": 0.5
+      },
+      {
+        "target": "neck-double-incr",
+        "value": 0.10000000149011612
+      },
+      {
+        "target": "neck-scale-depth-incr",
+        "value": 0.10000000149011612
+      },
+      {
+        "target": "bulge-incr",
+        "value": 1.0
+      },
+      {
+        "target": "pelvis-tone-incr",
+        "value": 0.5
+      },
+      {
+        "target": "stomach-pregnant-incr",
+        "value": 0.20000000298023224
+      },
+      {
+        "target": "stomach-navel-in",
+        "value": 0.6000000238418579
+      },
+      {
+        "target": "torso-muscle-pectoral-incr",
+        "value": 0.6000000238418579
+      },
+      {
+        "target": "torso-muscle-dorsi-incr",
+        "value": 0.10000000149011612
+      },
+      {
+        "target": "torso-vshape-incr",
+        "value": 0.5
+      },
+      {
+        "target": "l-foot-scale-incr",
+        "value": 0.5
+      },
+      {
+        "target": "r-foot-scale-incr",
+        "value": 0.5
+      },
+      {
+        "target": "head-scale-horiz-incr",
+        "value": 0.5
+      },
+      {
+        "target": "neck-scale-vert-incr",
+        "value": 0.30000001192092896
+      }
+    ],
+    "teeth": "",
+    "tongue": ""
+  },
+  "settings": {
+    "mask_helpers": true,
+    "detailed_helpers": true,
+    "extra_vertex_groups": true,
+    "feet_on_ground": true,
+    "scale": 0.1,
+    "subdiv_levels": 1,
+    "load_clothes": true,
+    "override_skin_model": "PRESET",
+    "override_rig": "PRESET",
+    "material_instances": "ENHANCED",
+    "override_clothes_model": "PRESET",
+    "override_eyes_model": "PRESET"
+  },
+  "preselect_group": "body",
+  "auto_generate_rigify": true,
+  "meta_rig_action": "hide"
+}

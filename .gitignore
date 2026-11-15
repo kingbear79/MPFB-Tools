@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.blend[0-9]*
+*.zip
+dist/
+.env*
+.secrets/
+Bibliothek/
+Entwürfe/
