@@ -1,12 +1,67 @@
 """Build scalp strands from measurements in the reference image recipe."""
 import math
+from typing import NamedTuple
 
 from mathutils import Vector
 
 from .groom_profiles import smooth
 
 
-def scalp_section(root, normal, depth, recipe):
+class Ear(NamedTuple):
+    front: float
+    rear: float
+    top: float
+    lobe: float
+
+    @property
+    def height(self):
+        return self.top - self.lobe
+
+
+def ear_landmarks(tree, depth):
+    """Locate the pinna on each side of the actual MPFB head."""
+    ears = {}
+    for side in (-1, 1):
+        def lateral(y, z):
+            point, _, _, _ = tree.ray_cast((side * .20, y, z), (-side, 0, 0), .16)
+            return abs(point.x) if point is not None else None
+
+        rim = []
+        for level in range(34):
+            z = -.079 - .0027 * level
+            before, after = lateral(.38 * depth, z), lateral(.74 * depth, z)
+            if before is None or after is None:
+                continue
+            for index in range(16):
+                part = .44 + .016 * index
+                y = part * depth
+                extent = lateral(y, z)
+                baseline = before + (after - before) * ((part - .38) / .36)
+                if extent is not None and extent - baseline > .009:
+                    rim.append((y, z))
+        if len(rim) >= 20 and max(z for _, z in rim) - min(z for _, z in rim) >= .031:
+            ears[side] = Ear(min(y for y, _ in rim) - .0015, max(y for y, _ in rim) + .0015,
+                             max(z for _, z in rim) + .0025, min(z for _, z in rim) - .004)
+        else:
+            ears[side] = Ear(.48 * depth, .62 * depth, -.097, -.158)
+    return ears
+
+
+def fade_at(root, ear, recipe):
+    width, y, z = abs(root.x), root.y, root.z
+    mid_y = (ear.front + ear.rear) * .5
+    mid_z = (ear.top + ear.lobe) * .5
+    y_radius = ((ear.rear - mid_y) + ear.height * recipe["fade_behind"]
+                if y >= mid_y else mid_y - ear.front + .85 * ear.height)
+    z_radius = ear.height * (.5 + recipe["fade_height"] if z >= mid_z else .74)
+    distance = math.hypot((y - mid_y) / y_radius, (z - mid_z) / z_radius)
+    # Convert the same visible transition width along the local ellipse direction.
+    normal_scale = math.hypot((y - mid_y) / y_radius**2, (z - mid_z) / z_radius**2)
+    transition = max(.015, .5 * recipe["fade_blend"] * ear.height * normal_scale / max(.1, distance))
+    return (1 - smooth(1 - transition, 1 + transition, distance)) * smooth(.042, .066, width) * recipe["fade"]
+
+
+def scalp_section(root, normal, depth, ear, recipe):
     x, y, z = root
     width = abs(x)
     progress = y / depth
@@ -19,9 +74,7 @@ def scalp_section(root, normal, depth, recipe):
 
     # The upper edge moves with the fade, and behind the ear a separate
     # panel continues from the crown down to the rear hairline.
-    fade = recipe["fade"]
-    fade_height = recipe["fade_height"]
-    top_z = -.098 + .036 * fade * fade_height
+    top_z = -.098
     crown = smooth(top_z - .010, top_z + .024, z)
     crown *= .79 + .21 * smooth(-.25, .43, normal.z)
     crown = max(crown, fringe * smooth(hairline, hairline + .032, z) * (1 - smooth(.033, .061, width)))
@@ -33,12 +86,11 @@ def scalp_section(root, normal, depth, recipe):
     upper_back = back_panel * (1 - lower_back)
     top = crown * (1 - back_panel)
 
-    ear_distance = math.hypot((progress - .49) / .38, (z + .145) / .077)
-    fade_transition = smooth(.38 + .31 * fade_height, .95 + .30 * fade_height, ear_distance)
-    side_length = .00035 + (recipe["sides"] * .01 - .00035) * (1 - fade * (1 - fade_transition**1.7))
-    side_density = 1 - fade * (1 - (.045 + .955 * fade_transition**1.65))
     side = max(0, 1 - top - upper_back - nape)
-    density = cover * (recipe["density"] * (top + side * side_density) + recipe["nape_density"] * back_panel)
+    fade = fade_at(root, ear, recipe)
+    density = cover * (recipe["density"] * (top + side) + recipe["nape_density"] * back_panel) * (1 - .91 * fade)
+    nape_edge = ear.lobe - ear.height * recipe["nape_drop"]
+    density *= 1 - back_panel * (1 - smooth(nape_edge - .002, nape_edge + .005, z))
     if recipe["part"] > 0:
         part_x = .060 * recipe["part_offset"] * (1 - .26 * smooth(.10, .66, progress))
         part_width = .005 * recipe["part"]
@@ -46,21 +98,28 @@ def scalp_section(root, normal, depth, recipe):
         density *= 1 - visible_part * (1 - smooth(part_width * .55, part_width * 1.35, abs(x - part_x)))
 
     top_length = (.01 * (recipe["length"] + (recipe["fringe"] - recipe["length"]) * fringe))
-    length = top_length * top + side_length * side + .01 * (recipe["back"] * upper_back + recipe["nape"] * nape)
+    length = top_length * top + .01 * recipe["sides"] * side + .01 * (recipe["back"] * upper_back + recipe["nape"] * nape)
+    length = length * (1 - fade) ** 1.75 + .00038 * fade
     front_fall = recipe["fringe_fall"] * fringe * top
     lateral = recipe["sweep"]
+    fore_aft = .40 * (1 - abs(recipe["comb"])) + 1.14 * recipe["comb"] - 2.05 * front_fall
     if recipe["part"] > 0 and abs(lateral) < .9:
         lateral += (.78 - abs(lateral) * .5) * (1 if x > part_x else -1)
-    upper_flow = Vector((lateral, .40 * (1 - abs(recipe["comb"])) + 1.14 * recipe["comb"]
-                         - 2.05 * front_fall, -.40 * front_fall))
+    elif recipe["part"] == 0:
+        # Turn across the scalp as the fringe flow reverses. An opposing
+        # straight comb on either side would expose an unintended parting.
+        preferred_side = -1 if lateral < 0 else 1
+        turn = (1 - smooth(.07, .63, abs(fore_aft))) * recipe["fringe_fall"]
+        lateral += preferred_side * .83 * turn
+    upper_flow = Vector((lateral, fore_aft, -.40 * front_fall))
     direction = upper_flow * top + Vector((x * 3.4, .24, -.94)) * side
     direction += Vector((x * (1.3 + 11.5 * recipe["nape_flare"]), .35, -.96)) * back_panel
     curl = recipe["curl"] * (top + .34 * side) + recipe["nape_curl"] * back_panel
-    lift = min(length * .76, .002 + .01 * recipe["volume"] * top + length * (.22 * upper_back + .12 * nape))
+    lift = min(length * .60, .0012 + .008 * recipe["volume"] * top + length * (.12 * upper_back + .10 * nape))
     return density, length, lift, direction, curl, back_panel, nape, front_fall
 
 
-def scalp_strand(root, normal, section, recipe, rng, tree):
+def scalp_strand(root, normal, section, recipe, ear, depth, rng, tree):
     _, length, lift, direction, curl, back_panel, nape, fringe = section
     tangent = direction - normal * direction.dot(normal)
     if tangent.length_squared < 1e-8:
@@ -74,19 +133,21 @@ def scalp_strand(root, normal, section, recipe, rng, tree):
     # Use a sheet of neighbouring guides with shared pitch and phase.
     # Roots stay distinct. Their tips gather around the same lock.
     clump = recipe["clump"]
-    cell_size = .010 + .015 * clump
+    # The image width includes overlapping fibres along the edges. Give
+    # the guide cell enough room for these before it reaches its neighbours.
+    cell_size = .001 * recipe["lock_width"] * (.56 + .44 * clump)
     crown_plane = smooth(.18, .78, normal.z)
     u = root.x + .20 * root.y + .25 * root.z
     v = (.50 + .50 * crown_plane) * root.y - .77 * (1 - crown_plane) * root.z - .15 * root.x
     cell_u = math.floor(u / cell_size + .15 * math.sin(v * 87))
     cell_v = math.floor(v / cell_size + .15 * math.cos(u * 75))
     lock = (cell_u * .61803399 + cell_v * .41421356) % 1
-    phase = math.tau * lock + rng.uniform(-1, 1) * (1.25 - .96 * clump)
+    phase = math.tau * lock + rng.uniform(-1, 1) * (1.19 - 1.08 * clump) * (1 - .56 * curl)
     underlayer = (1 - smooth(.013, .34, rng.random())) * clump * .43
     length *= (1 + (lock - .5) * .34 * clump) * (1 - underlayer) * rng.uniform(.91, 1.09)
     lift *= (1 + (lock - .5) * .44) * (1 - underlayer * .81)
     transverse = normal.cross(tangent).normalized()
-    turn = (lock - .5) * 1.65 * clump
+    turn = (lock - .5) * clump * (1.2 + 1.65 * curl)
     flow = (tangent + transverse * turn).normalized()
     second = flow.cross(transverse).normalized()
     if second.dot(normal) < 0:
@@ -95,7 +156,9 @@ def scalp_strand(root, normal, section, recipe, rng, tree):
     # Straight projection is shorter than the straightened fibre length.
     # A circular component around the guide makes real three-dimensional
     # bends, and the shared phase gives neighbouring hairs the same shape.
-    radius = min(.014 * recipe["curl_size"], length * .25) * smooth(0., .77, curl)
+    outer_radius = .01 * (recipe["curl_size"] + (recipe["nape_curl_size"] - recipe["curl_size"]) * back_panel)
+    centreline_radius = max(.56 * outer_radius, outer_radius - .31 * cell_size)
+    radius = min(centreline_radius, length * .25) * smooth(0., .77, curl)
     ellipticity = .28 + .70 * smooth(.24, .74, curl)
     turns = min(8., max(.62, length / max(.012, math.tau * radius * .90))) * (.57 + .60 * curl)
     travel = length * (1 - .57 * curl)
@@ -104,14 +167,21 @@ def scalp_strand(root, normal, section, recipe, rng, tree):
     guide_end = direction.normalized()
     side = 1 if root.x >= 0 else -1
     flare = recipe["nape_flare"] * back_panel
-    tip_lift = min(.040, length * .41) * flare
+    tip_lift = min(.025, length * .32) * flare
     du = (cell_u + .5) * cell_size - u
     dv = (cell_v + .5) * cell_size - v
     toward_lock = Vector((du - .22 * dv, dv * (.32 + .68 * crown_plane), -.92 * dv * (1 - crown_plane)))
     toward_lock -= normal * toward_lock.dot(normal)
     # A long fringe follows the forehead instead of extending horizontally
     # into the air. Only the tips come back towards the head.
-    forehead_clearance = min(.025, length * .40)
+    forehead_clearance = min(.014, length * .28)
+    nape_limit = None
+    if back_panel > .55:
+        nape_limit = ear.lobe - ear.height * recipe["nape_drop"]
+        nape_limit += abs(root.x) * .08 + (.003 + .018 * curl) * lock
+    fringe_limit = ear.top + ear.height * recipe["fringe_clearance"] + .002 * math.sin(phase)
+    crown_limit = .01 * recipe["volume"] * (.91 + .13 * lock) + .0015
+    rear_limit = depth + .007 + .006 * recipe["volume"]
     for i in range(1, steps + 1):
         t = i / steps
         # Short roots lift up before turning. Long guides fall freely
@@ -132,6 +202,12 @@ def scalp_strand(root, normal, section, recipe, rng, tree):
             if forehead is not None:
                 ahead = forehead.y - forehead_clearance
                 point.y += max(0., ahead - point.y) * smooth(.29, .83, t) * fringe
+        if point.z > crown_limit:
+            excess = point.z - crown_limit
+            point.z = crown_limit + excess * .002 / (.002 + excess)
+        if point.y > rear_limit:
+            excess = point.y - rear_limit
+            point.y = rear_limit + excess * .006 / (.006 + excess)
         # The first millimetres hug the root. If the guide turns inward,
         # the nearest outward-facing local skin limits penetration.
         near, face_normal, _, _ = tree.find_nearest(point, .014)
@@ -139,6 +215,11 @@ def scalp_strand(root, normal, section, recipe, rng, tree):
             clearance = (point - near).dot(face_normal)
             if clearance < .00024:
                 point += face_normal * (.00024 - clearance)
+        fall_limit = fringe_limit if fringe > .12 and point.y < .18 * depth else nape_limit
+        if fall_limit is not None and point.z < fall_limit < path[-1].z:
+            cut = (path[-1].z - fall_limit) / (path[-1].z - point.z)
+            path.append(path[-1].lerp(point, cut))
+            break
         path.append(point)
     return path
 
@@ -149,7 +230,7 @@ def scalp_underlayer(root, normal, length, direction, rng, tree):
     contact = root.copy()
     # A slight variation in the flow avoids collecting all roots into the
     # same parting as the longer locks.
-    flow = direction + Vector((rng.uniform(-.4, .4), rng.uniform(-.4, .4), .28))
+    flow = direction * .46 + Vector((rng.uniform(-.55, .55), rng.uniform(-.55, .55), .16))
     step = min(.029, length * .49) / 6
     for i in range(1, 7):
         glide = flow - normal * flow.dot(normal)

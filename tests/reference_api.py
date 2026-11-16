@@ -35,7 +35,7 @@ class ReferenceAnalysis(unittest.TestCase):
 
     def prepare(self, path, main):
         self.prepared.append((path, main))
-        return f"data:image/jpeg;base64,{path.stem}"
+        return f"data:image/jpeg;base64,{path.stem}", 1.0
 
     def transport(self, payload, key):
         self.calls.append((payload, key))
@@ -121,6 +121,26 @@ class ReferenceAnalysis(unittest.TestCase):
         self.assertEqual(missing, ("H",))
         self.assertEqual(result["B"]["style"], "B09")
         self.assertNotIn("style", result["H"])
+
+    def test_visible_profile_landmarks_override_rough_estimates(self):
+        item = recipe("H", profile={
+            "view": 2, "ear_top": 400, "ear_lobe": 550, "ear_back": 460,
+            "fringe_tip": 355, "nape_tip": 700, "fade_mid_top": 355, "fade_mid_back": 490,
+            "fade_band_top": 335, "fade_band_bottom": 380, "crown_curl_span": 30,
+            "nape_curl_span": 36, "lock_span": 20,
+        })
+        response = {"status": "completed", "output": [
+            {"type": "message", "content": [{"type": "output_text", "text": json.dumps({"H": item})}]},
+        ]}
+        photos = [("main", 1.), ("profile", 1.5)]
+        haircut = api.parse_response(response, ("H",), photos)["H"]
+        self.assertEqual(haircut["fringe_clearance"], .30)
+        self.assertEqual(haircut["nape_drop"], 1.)
+        self.assertEqual(haircut["fade_behind"], .30)
+        self.assertEqual(haircut["fade_blend"], .30)
+        self.assertEqual(haircut["curl_size"], .60)
+        self.assertEqual(haircut["nape_curl_size"], .72)
+        self.assertEqual(haircut["lock_width"], 8.)
 
 
 if __name__ == "__main__":

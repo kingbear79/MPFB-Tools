@@ -17,7 +17,7 @@ def image_data_uri(path, main, workspace):
         width, height = image.size
         if min(width, height) < 1:
             raise ValueError(f"„{path.name}“ konnte nicht als Bild gelesen werden.")
-        factor = min(1.0, (768 if main else 512) / max(width, height))
+        factor = min(1.0, (960 if main else 640) / max(width, height))
         if factor < 1:
             image.scale(max(1, round(width * factor)), max(1, round(height * factor)))
         settings = bpy.context.scene.render.image_settings
@@ -29,7 +29,7 @@ def image_data_uri(path, main, workspace):
         try:
             image.save_render(str(output))
             encoded = base64.b64encode(output.read_bytes()).decode("ascii")
-            return "data:image/jpeg;base64," + encoded
+            return "data:image/jpeg;base64," + encoded, width / height
         finally:
             output.unlink(missing_ok=True)
     finally:

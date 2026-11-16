@@ -10,7 +10,7 @@ from bpy.app.handlers import persistent
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from . import catalog, library_backup, previews, saved_assets
-from .cloud_api import MODEL
+from .cloud_api import LEGACY_MODEL, MODEL
 
 
 ITEMS = [(key, label, "") for key, label in catalog.GROOMS.items()]
@@ -352,7 +352,10 @@ def cloud_key_file():
 
 def load_cloud_settings(context):
     info = catalog.settings(directory(context)).get("cloud", {})
-    context.window_manager.mpfb_tools_cloud_model = info.get("model") or MODEL
+    model = info.get("model")
+    if model == LEGACY_MODEL and not info.get("model_selected"):
+        model = None
+    context.window_manager.mpfb_tools_cloud_model = model or MODEL
 
 
 class MPFBTOOLS_OT_cloud_key_from_clipboard(bpy.types.Operator):
@@ -394,7 +397,7 @@ class MPFBTOOLS_OT_cloud_settings(bpy.types.Operator):
         try:
             model = wm.mpfb_tools_cloud_model.strip()
             info = catalog.settings(directory(context))
-            info["cloud"] = {"model": model}
+            info["cloud"] = {"model": model, "model_selected": bool(model)}
             catalog.write_settings(directory(context), info)
         except ERRORS as error:
             self.report({"ERROR"}, str(error))

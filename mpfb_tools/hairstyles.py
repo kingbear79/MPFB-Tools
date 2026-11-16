@@ -13,7 +13,7 @@ from .cloud_api import COLORS
 from .groom_profiles import BROWS, STYLES, beard_profile, brow_z, scalp_profile, smooth
 from .hair import add_hair_modifier, region_weights
 from .hair_binding import remember_binding
-from .reference_hair import scalp_section, scalp_strand, scalp_underlayer
+from .reference_hair import ear_landmarks, scalp_section, scalp_strand, scalp_underlayer
 
 
 MARKER = "mpfb_tools_hairstyle"
@@ -309,6 +309,7 @@ def groom_paths(surface, style, recipe=None):
     strand_rng = random.Random() if reference else rng
     paths, roots, radii, tones = [], [], [], []
     depth = (rear - front) / scale
+    ears = ear_landmarks(tree, depth) if reference else None
 
     def normal_at(point, face):
         i, j, k = faces[face]
@@ -352,7 +353,8 @@ def groom_paths(surface, style, recipe=None):
             x, _, z = root
             raw_density = smooth(.18, .69, mask_value) if revised else smooth(.13, .62, mask_value)
             if reference:
-                section = scalp_section(root, n, depth, recipe)
+                ear = ears[1 if x >= 0 else -1]
+                section = scalp_section(root, n, depth, ear, recipe)
                 density, length = section[:2]
             elif beard:
                 density, length, wave, upper_lip = (beard_profile(style, root) if recipe is None else
@@ -362,7 +364,7 @@ def groom_paths(surface, style, recipe=None):
             if rng.random() > raw_density * density:
                 continue
             if reference:
-                path = scalp_strand(root, n, section, recipe, strand_rng, tree)
+                path = scalp_strand(root, n, section, recipe, ear, depth, strand_rng, tree)
             else:
                 length *= rng.uniform(.83, 1.16)
                 phase = rng.uniform(0, math.tau)
@@ -406,7 +408,7 @@ def groom_paths(surface, style, recipe=None):
                 if style == "B09":
                     thickness *= .57 + .43 * smooth(.003, .016, length)
             elif reference:
-                thickness *= .66 + .23 * smooth(.003, .038, length)
+                thickness *= .44 + .14 * smooth(.003, .038, length)
                 cut_taper = .65
             elif revised:
                 # Individual strands read as fibres rather than broad bundles.
@@ -419,7 +421,7 @@ def groom_paths(surface, style, recipe=None):
             radii.extend(thickness * (1 - cut_taper * (i / (len(path) - 1))**1.7) for i in range(len(path)))
             tone = max(0, min(1, strand_rng.gauss(.41, .17)))
             tones.append(tone)
-            if reference and length > .036 and density > .53 and strand_rng.random() < recipe["clump"]:
+            if reference and length > .014 and density > .53 and strand_rng.random() < .52 + .44 * recipe["clump"]:
                 underlayer = scalp_underlayer(root, n, length, section[3], strand_rng, tree)
                 if len(underlayer) > 1:
                     paths.append([(p.x * scale + center, p.y * scale + front, p.z * scale + crown) for p in underlayer])
