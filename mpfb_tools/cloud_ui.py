@@ -8,17 +8,21 @@ import textwrap
 from time import monotonic
 
 import bpy
+from bpy.app.handlers import persistent
 from bpy_extras.io_utils import ImportHelper
 from mathutils import Vector
 
 from . import cloud_api as api, hair_binding, library_ui, saved_assets
 from .attachment import figure_surface
 from .groom_profiles import STYLES
-from .hairstyles import REFERENCE_HAIR, add_groom
+from .hairstyles import REFERENCE_HAIR, add_groom, refresh_reference_hair
 from .library import discard_new
 
 
 _pending = None
+_live_update = None
+LIVE_DELAY = .22
+LIVE_SETTLE = 2.0
 
 COLOR_ITEMS = [(key, label, "") for key, (label, _) in api.COLORS.items()]
 COMPONENTS = [(kind, label, "") for kind, label in api.LABELS.items()]
@@ -26,21 +30,129 @@ FIELD_NAMES = {"H": "hair", "B": "beard", "A": "brows"}
 LOCAL_STYLES = {"B": "B03", "A": "A02"}
 
 
+@persistent
+def cancel_live_preview(_unused=None):
+    global _live_update
+    _live_update = None
+    if bpy.app.timers.is_registered(update_live_preview):
+        bpy.app.timers.unregister(update_live_preview)
+
+
+def schedule_live_preview(_property, context):
+    if settings(context).show_parameters:
+        queue_live_preview(context)
+
+
+def toggle_live_preview(_property, context):
+    state = settings(context)
+    if state.show_parameters:
+        queue_live_preview(context)
+    elif _live_update is not None or state.hair.preview_draft:
+        queue_live_preview(context, full=True)
+
+
+def queue_live_preview(context, *, full=False):
+    global _live_update
+    state = settings(context)
+    state.live_error = ""
+    obj = state.hair.preview
+    if (_pending is not None or context.window is None or obj is None or not state.hair.visible
+            or not state.with_hair or "H" not in state.available):
+        return
+    if context.view_layer.objects.get(obj.name) != obj:
+        return
+    _live_update = (context.window, context.scene, context.view_layer, obj, monotonic() + LIVE_DELAY, full)
+    if not bpy.app.timers.is_registered(update_live_preview):
+        bpy.app.timers.register(update_live_preview, first_interval=LIVE_DELAY)
+
+
+def update_live_preview():
+    global _live_update
+    if _live_update is None:
+        return None
+    window, scene, layer, obj, deadline, full = _live_update
+    remaining = deadline - monotonic()
+    if remaining > 0:
+        return remaining
+    _live_update = None
+    context = bpy.context
+    if window not in tuple(context.window_manager.windows):
+        return None
+    try:
+        if window.scene != scene or window.view_layer != layer:
+            return None
+        with context.temp_override(window=window):
+            state = settings(context)
+            field = state.hair
+            if ((not full and not state.show_parameters) or _pending is not None or "H" not in available(state)
+                    or not field.visible or field.preview != obj or layer.objects.get(obj.name) != obj):
+                return None
+            if context.mode != "OBJECT" or obj.mode != "OBJECT":
+                state.live_error = "Wechsle in den Objektmodus, um die Vorschau zu aktualisieren."
+                return None
+            recipe = recipe_dict("H", field)
+            digest = geometry_signature("H", recipe)
+            if digest != field.preview_signature or (full and field.preview_draft):
+                apply_live_recipe(field, recipe, digest, draft=not full)
+            if field.preview_draft:
+                _live_update = (window, scene, layer, obj, monotonic() + LIVE_SETTLE, True)
+                return LIVE_SETTLE
+    except ReferenceError:
+        return None  # The scene or preview was removed before the timer ran.
+    except library_ui.ERRORS as error:
+        settings(context).live_error = str(error)
+    finally:
+        for area in window.screen.areas:
+            if area.type == "VIEW_3D":
+                area.tag_redraw()
+    return None
+
+
+def apply_live_recipe(field, recipe, digest, *, draft=False):
+    obj = field.preview
+    surface = hair_binding.mesh_surface(obj)
+    if surface is None or surface.mode != "OBJECT" or obj.mode != "OBJECT" or not obj.is_editable:
+        raise ValueError("Die Oberfläche der Frisur ist gerade nicht bearbeitbar.")
+    refresh_reference_hair(obj, surface, recipe, draft=draft)
+    field.preview_signature = digest
+    field.preview_draft = draft
+
+
+@persistent
+def finalize_preview_before_save(_unused):
+    context = bpy.context
+    state = settings(context)
+    field = state.hair
+    obj = field.preview
+    if obj is None or context.scene.objects.get(obj.name) != obj or "H" not in available(state):
+        return
+    if field.preview_draft or (_live_update is not None and _live_update[3] == obj):
+        try:
+            recipe = recipe_dict("H", field)
+            apply_live_recipe(field, recipe, geometry_signature("H", recipe))
+            cancel_live_preview()
+        except library_ui.ERRORS as error:
+            state.live_error = str(error)
+
+
 def recipe_class(kind, suffix):
+    live = {"update": schedule_live_preview} if kind == "H" else {}
     descriptions = {
         "name": bpy.props.StringProperty(name="Name"),
-        "color": bpy.props.EnumProperty(name="Farbe", items=COLOR_ITEMS),
+        "color": bpy.props.EnumProperty(name="Farbe", items=COLOR_ITEMS, **live),
         "visible": bpy.props.BoolProperty(name="Komponente übernehmen"),
         "certainty": bpy.props.StringProperty(),
         "notes": bpy.props.StringProperty(),
         "preview": bpy.props.PointerProperty(type=bpy.types.Object),
         "preview_signature": bpy.props.StringProperty(),
     }
-    if kind != "H":
+    if kind == "H":
+        descriptions["preview_draft"] = bpy.props.BoolProperty(options={"SKIP_SAVE"})
+    else:
         descriptions["style"] = bpy.props.EnumProperty(
             name="Grundform", items=[(sid, STYLES[sid], "") for sid in api.style_ids(kind)])
     for key, (label, initial, low, high, _) in api.PARAMETERS[kind].items():
-        descriptions[key] = bpy.props.FloatProperty(name=label, default=initial, min=low, max=high)
+        descriptions[key] = bpy.props.FloatProperty(name=label, default=initial, min=low, max=high, **live)
     return type(f"MPFBTOOLS_PG_reference_{suffix}", (bpy.types.PropertyGroup,),
                 {"__module__": __name__, "__annotations__": descriptions})
 
@@ -62,7 +174,12 @@ class MPFBTOOLS_PG_reference_job(bpy.types.PropertyGroup):
     analyzed_paths: bpy.props.StringProperty()
     available: bpy.props.StringProperty()
     status: bpy.props.StringProperty()
-    show_parameters: bpy.props.BoolProperty(name="Schnitt und Textur bearbeiten")
+    show_parameters: bpy.props.BoolProperty(
+        name="Schnitt und Textur bearbeiten",
+        description="Aktualisiert eine vorhandene Frisur automatisch, wenn du die Regler änderst",
+        update=toggle_live_preview,
+    )
+    live_error: bpy.props.StringProperty(options={"SKIP_SAVE"})
     hair: bpy.props.PointerProperty(type=RECIPES["H"])
     beard: bpy.props.PointerProperty(type=RECIPES["B"])
     brows: bpy.props.PointerProperty(type=RECIPES["A"])
@@ -346,6 +463,8 @@ def replace_preview(context, state):
     for field, obj, digest in new_objects:
         field.preview = obj
         field.preview_signature = digest
+        if hasattr(field, "preview_draft"):
+            field.preview_draft = False
     saved_assets.select_figure(context, selected, base)
     return [obj for _, obj, _ in new_objects]
 
@@ -368,7 +487,9 @@ class MPFBTOOLS_OT_reference_preview(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            created = replace_preview(context, settings(context))
+            state = settings(context)
+            created = replace_preview(context, state)
+            state.live_error = ""
         except library_ui.ERRORS as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
@@ -426,6 +547,13 @@ class MPFBTOOLS_OT_reference_save(bpy.types.Operator):
         if obj is None or self.group not in available(state):
             self.report({"ERROR"}, "Erstelle zuerst die lokale Vorschau mit den aktuellen Werten.")
             return {"CANCELLED"}
+        if self.group == "H" and recipe.preview_draft:
+            try:
+                apply_live_recipe(recipe, recipe_dict("H", recipe), recipe.preview_signature)
+                cancel_live_preview()
+            except library_ui.ERRORS as error:
+                self.report({"ERROR"}, str(error))
+                return {"CANCELLED"}
         return library_ui.publish(self, context, self.group, recipe.name, None,
                                   lambda path: saved_assets.save_groom(context, obj, path), picked_object=obj)
 
@@ -488,6 +616,13 @@ class MPFBTOOLS_PT_reference(bpy.types.Panel):
                 if kind == "H":
                     box.prop(state, "show_parameters")
                     if state.show_parameters:
+                        if state.live_error:
+                            for line in textwrap.wrap(state.live_error, width=35):
+                                box.label(text=line, icon="ERROR")
+                        elif recipe.preview_draft:
+                            box.label(text="Schnellvorschau")
+                        elif _live_update is not None:
+                            box.label(text="Vorschau wird aktualisiert …")
                         for label, keys in api.HAIR_GROUPS.items():
                             section = box.box()
                             section.label(text=label)
@@ -513,9 +648,16 @@ CLASSES = (
 def register():
     bpy.types.WindowManager.mpfb_tools_reference = bpy.props.PointerProperty(
         type=MPFBTOOLS_PG_reference_job, options={"SKIP_SAVE"})
+    for handlers in (bpy.app.handlers.load_pre, bpy.app.handlers.undo_pre, bpy.app.handlers.redo_pre):
+        handlers.append(cancel_live_preview)
+    bpy.app.handlers.save_pre.append(finalize_preview_before_save)
 
 
 def unregister():
+    cancel_live_preview()
+    for handlers in (bpy.app.handlers.load_pre, bpy.app.handlers.undo_pre, bpy.app.handlers.redo_pre):
+        handlers.remove(cancel_live_preview)
+    bpy.app.handlers.save_pre.remove(finalize_preview_before_save)
     if _pending is not None:
         _pending.release()
     del bpy.types.WindowManager.mpfb_tools_reference

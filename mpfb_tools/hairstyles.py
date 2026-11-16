@@ -267,7 +267,7 @@ def reference_beard(style, root, recipe):
     return density, length, wave, upper_lip
 
 
-def groom_paths(surface, style, recipe=None):
+def groom_paths(surface, style, recipe=None, *, sample_fraction=1.0):
     beard = style.startswith("B")
     eyebrow = style in BROWS
     reference = style == REFERENCE_HAIR
@@ -307,6 +307,7 @@ def groom_paths(surface, style, recipe=None):
         return brow_paths(style, points, triangles, faces, tree, uv, Vector((center, front, crown)), scale, recipe)
     rng = random.Random(492)
     strand_rng = random.Random() if reference else rng
+    sample_limit = int(sample_fraction * (1 << 32))
     paths, roots, radii, tones = [], [], [], []
     depth = (rear - front) / scale
     ears = ear_landmarks(tree, depth) if reference else None
@@ -347,7 +348,11 @@ def groom_paths(surface, style, recipe=None):
             if reference:
                 # Changing a region's density or length must not resample
                 # the roots or curl phases of unrelated regions.
-                strand_rng.seed(rng.getrandbits(32))
+                seed = rng.getrandbits(32)
+                acceptance = rng.random()
+                if seed >= sample_limit:
+                    continue
+                strand_rng.seed(seed)
             root = a * w + b * u + c * v
             n = (normals[indices[0]] * w + normals[indices[1]] * u + normals[indices[2]] * v).normalized()
             x, _, z = root
@@ -361,7 +366,7 @@ def groom_paths(surface, style, recipe=None):
                                                      reference_beard(style, root, recipe))
             else:
                 density, length, height, top, direction, wave = scalp_profile(style, root, n, depth)
-            if rng.random() > raw_density * density:
+            if (acceptance if reference else rng.random()) > raw_density * density:
                 continue
             if reference:
                 path = scalp_strand(root, n, section, recipe, ear, depth, strand_rng, tree)
@@ -409,6 +414,7 @@ def groom_paths(surface, style, recipe=None):
                     thickness *= .57 + .43 * smooth(.003, .016, length)
             elif reference:
                 thickness *= .44 + .14 * smooth(.003, .038, length)
+                thickness /= sample_fraction ** .42
                 cut_taper = .65
             elif revised:
                 # Individual strands read as fibres rather than broad bundles.
@@ -468,8 +474,42 @@ def hair_material(style, palette=None):
     return mat
 
 
+def fill_groom_curves(curves, geometry, style, recipe):
+    paths, roots, radii, tones = geometry
+    curves.add_curves([len(path) for path in paths])
+    coords = np.asarray([p for path in paths for p in path], dtype=np.float32).ravel()
+    curves.attributes["position"].data.foreach_set("vector", coords)
+    for name, kind, domain, field, data in (
+        ("surface_uv_coordinate", "FLOAT2", "CURVE", "vector", roots),
+        ("radius", "FLOAT", "POINT", "value", radii),
+        ("mpfb_hair_tone", "FLOAT", "CURVE", "value", tones),
+    ):
+        attr = curves.attributes.get(name) or curves.attributes.new(name, kind, domain)
+        attr.data.foreach_set(field, np.asarray(data, dtype=np.float32).ravel())
+    curves.materials.append(hair_material(style, recipe["color"] if recipe is not None else None))
+
+
+def refresh_reference_hair(obj, surface, recipe, *, draft=False):
+    """Swap the generated curves while preserving the preview object and modifiers."""
+    geometry = groom_paths(surface, REFERENCE_HAIR, recipe, sample_fraction=.14 if draft else 1.0)
+    old = obj.data
+    curves = bpy.data.hair_curves.new(old.name)
+    try:
+        curves.surface = old.surface
+        curves.surface_uv_map = surface.data.uv_layers.active.name
+        fill_groom_curves(curves, geometry, REFERENCE_HAIR, recipe)
+        obj.data = curves
+    except Exception:
+        bpy.data.hair_curves.remove(curves)
+        raise
+    if old.users == 0:
+        name = old.name
+        bpy.data.hair_curves.remove(old)
+        curves.name = name
+
+
 def add_groom(context, surface, style, recipe=None):
-    paths, roots, radii, tones = groom_paths(surface, style, recipe)
+    geometry = groom_paths(surface, style, recipe)
     old_active = context.view_layer.objects.active
     old_selection = list(context.selected_objects)
     obj = None
@@ -491,17 +531,7 @@ def add_groom(context, surface, style, recipe=None):
         curves.surface_uv_map = surface.data.uv_layers.active.name
         obj.name = curves.name = STYLES[style] if recipe is None else recipe["name"]
         obj[MARKER] = style
-        curves.add_curves([len(path) for path in paths])
-        coords = np.asarray([p for path in paths for p in path], dtype=np.float32).ravel()
-        curves.attributes["position"].data.foreach_set("vector", coords)
-        for name, kind, domain, field, data in (
-            ("surface_uv_coordinate", "FLOAT2", "CURVE", "vector", roots),
-            ("radius", "FLOAT", "POINT", "value", radii),
-            ("mpfb_hair_tone", "FLOAT", "CURVE", "value", tones),
-        ):
-            attr = curves.attributes.get(name) or curves.attributes.new(name, kind, domain)
-            attr.data.foreach_set(field, np.asarray(data, dtype=np.float32).ravel())
-        curves.materials.append(hair_material(style, recipe["color"] if recipe is not None else None))
+        fill_groom_curves(curves, geometry, style, recipe)
         add_hair_modifier(obj, frizz_distance={"H10": .00070, "B09": .00060, REFERENCE_HAIR: .00028}.get(style))
         context.view_layer.update()
         remember_binding(context.scene, obj)

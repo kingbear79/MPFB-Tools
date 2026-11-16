@@ -2,8 +2,8 @@
 
 1. Wähle unter **Addons hinzufügen → Haare → Aus Referenzbildern erstellen** ein Hauptbild und bei Bedarf bis zu sechs Zusatzbilder im JPEG-, PNG- oder WebP-Format. Das Hauptbild bestimmt Schnitt und Silhouette. Zusatzbilder ergänzen Ansichten auf verdeckte Partien.
 2. Wähle **Frisur**, **Bart** und **Augenbrauen** in der gewünschten Kombination und klicke auf **Referenzen analysieren**. Für eine neue Analyse braucht Blender Online-Zugriff und einen API-Schlüssel. Kopiere den vollständigen Schlüssel im OpenAI-Dashboard und klicke unter **Einstellungen → Cloud für Referenzbilder** auf **API-Schlüssel aus Zwischenablage speichern**. Alternativ kann Blender die Umgebungsvariable `OPENAI_API_KEY` verwenden.
-3. Wähle eine MPFB-Figur und klicke auf **Vorschau auf Figur erzeugen**. Die Hair Curves werden an das aktuelle Körpermesh einschließlich eines vorhandenen Topology-Assets gebunden. Mit **Vorn**, **Profil**, **Hinten** und **Dreiviertel** kannst du das Ergebnis prüfen. Unter **Schnitt und Textur bearbeiten** kannst du die Parameter der Frisur ändern und die Vorschau lokal neu erzeugen.
-4. Speichere jede gewünschte Komponente mit **In Bibliothek speichern**. Nach Änderungen an den Reglern aktualisierst du zuerst die Vorschau. Bei einem vorhandenen Namen fragt das Tool vor dem Überschreiben nach.
+3. Wähle eine MPFB-Figur und klicke auf **Vorschau auf Figur erzeugen**. Die Hair Curves werden an das aktuelle Körpermesh einschließlich eines vorhandenen Topology-Assets gebunden. Mit **Vorn**, **Profil**, **Hinten** und **Dreiviertel** kannst du das Ergebnis prüfen. Wenn **Schnitt und Textur bearbeiten** aktiv ist, reagiert die vorhandene Frisur mit einer Schnellvorschau auf Regleränderungen. Nach einer kurzen Pause berechnet das Tool die volle Strähnenzahl. Beide Schritte laufen lokal.
+4. Speichere jede gewünschte Komponente mit **In Bibliothek speichern**, sobald die Vorschau aktuell ist. Bei einem vorhandenen Namen fragt das Tool vor dem Überschreiben nach.
 
 ## API-Verbrauch
 
