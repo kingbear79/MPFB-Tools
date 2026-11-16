@@ -32,9 +32,10 @@ jobs:
             fi
           done
           exit 1
-      - name: Test legacy scene migration
+      - name: Test legacy scene migration and clipboard key
         run: |
           "$RUNNER_TEMP/blender-4.5.3-linux-x64/blender" -b -Y --factory-startup --python-exit-code 1 -P tests/legacy_scene_settings.py
+          "$RUNNER_TEMP/blender-4.5.3-linux-x64/blender" -b -Y --factory-startup --python-exit-code 1 -P tests/clipboard_key.py
       - name: Build package and index
         run: |
           python3 tools/build.py --blender "$RUNNER_TEMP/blender-4.5.3-linux-x64/blender" --output "$RUNNER_TEMP/blender-feed"

@@ -1,7 +1,7 @@
 # Frisuren, Bärte und Augenbrauen aus Referenzbildern
 
 1. Wähle unter **Addons hinzufügen → Haare → Aus Referenzbildern erstellen** ein Hauptbild und bei Bedarf bis zu sechs Zusatzbilder im JPEG-, PNG- oder WebP-Format. Das Hauptbild bestimmt Schnitt und Silhouette. Zusatzbilder ergänzen Ansichten auf verdeckte Partien.
-2. Wähle **Frisur**, **Bart** und **Augenbrauen** in der gewünschten Kombination und klicke auf **Bilder analysieren**. Für eine neue Analyse braucht Blender Online-Zugriff und einen API-Schlüssel unter **Einstellungen → Cloud für Referenzbilder** oder in der Umgebungsvariable `OPENAI_API_KEY`.
+2. Wähle **Frisur**, **Bart** und **Augenbrauen** in der gewünschten Kombination und klicke auf **Bilder analysieren**. Für eine neue Analyse braucht Blender Online-Zugriff und einen API-Schlüssel. Kopiere den vollständigen Schlüssel im OpenAI-Dashboard und klicke unter **Einstellungen → Cloud für Referenzbilder** auf **API-Schlüssel aus Zwischenablage speichern**. Alternativ kann Blender die Umgebungsvariable `OPENAI_API_KEY` verwenden.
 3. Wähle eine MPFB-Figur, passe Grundform, Farbe und Regler an und klicke auf **Lokale Vorschau erstellen**. Die Hair Curves werden an das aktuelle Körpermesh einschließlich eines vorhandenen Topology-Assets gebunden. Mit **Vorn**, **Profil** und **Dreiviertel** lässt sich das Ergebnis in der 3D-Ansicht prüfen. Der Name und die Geometrie sind in Blender bearbeitbar.
 4. Speichere jede gewünschte Komponente mit **In Bibliothek speichern**. Nach Änderungen an den Reglern aktualisierst du zuerst die Vorschau. Bei einem vorhandenen Namen fragt das Tool vor dem Überschreiben nach.
 

@@ -1,6 +1,7 @@
 """Gallery management, reusable figure snapshots, and portable backups."""
 import os
 from pathlib import Path
+import re
 import tempfile
 import textwrap
 
@@ -354,6 +355,36 @@ def load_cloud_settings(context):
     context.window_manager.mpfb_tools_cloud_model = info.get("model") or MODEL
 
 
+class MPFBTOOLS_OT_cloud_key_from_clipboard(bpy.types.Operator):
+    bl_idname = "mpfb_tools.save_cloud_key_from_clipboard"
+    bl_label = "API-Schlüssel aus Zwischenablage speichern"
+    bl_description = "Speichert den im OpenAI-Dashboard kopierten API-Schlüssel lokal"
+
+    def execute(self, context):
+        key = context.window_manager.clipboard.strip()
+        if not re.fullmatch(r"sk-[A-Za-z0-9_-]+", key):
+            self.report({"ERROR"}, "Kopiere zuerst den vollständigen OpenAI API-Schlüssel.")
+            return {"CANCELLED"}
+        try:
+            destination = cloud_key_file()
+            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=destination.parent,
+                                             delete=False) as stream:
+                temporary = Path(stream.name)
+                try:
+                    stream.write(key + "\n")
+                    stream.close()
+                    temporary.chmod(0o600)
+                    temporary.replace(destination)
+                finally:
+                    temporary.unlink(missing_ok=True)
+        except OSError as error:
+            self.report({"ERROR"}, str(error))
+            return {"CANCELLED"}
+        self.report({"INFO"}, "API-Schlüssel lokal gespeichert")
+        return {"FINISHED"}
+
+
 class MPFBTOOLS_OT_cloud_settings(bpy.types.Operator):
     bl_idname = "mpfb_tools.save_cloud_settings"
     bl_label = "Cloud-Einstellungen speichern"
@@ -362,28 +393,12 @@ class MPFBTOOLS_OT_cloud_settings(bpy.types.Operator):
         wm = context.window_manager
         try:
             model = wm.mpfb_tools_cloud_model.strip()
-            key = wm.mpfb_tools_cloud_key.strip()
-            if key:
-                destination = cloud_key_file()
-                destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=destination.parent,
-                                                 delete=False) as stream:
-                    temporary = Path(stream.name)
-                    try:
-                        stream.write(key + "\n")
-                        stream.close()
-                        temporary.chmod(0o600)
-                        temporary.replace(destination)
-                    finally:
-                        temporary.unlink(missing_ok=True)
             info = catalog.settings(directory(context))
             info["cloud"] = {"model": model}
             catalog.write_settings(directory(context), info)
         except ERRORS as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
-        finally:
-            wm.mpfb_tools_cloud_key = ""
         self.report({"INFO"}, "Cloud-Einstellungen gespeichert")
         return {"FINISHED"}
 
@@ -405,7 +420,7 @@ class MPFBTOOLS_PT_settings(bpy.types.Panel):
         box = self.layout.box()
         box.label(text="Cloud für Referenzbilder")
         box.prop(context.window_manager, "mpfb_tools_cloud_model")
-        box.prop(context.window_manager, "mpfb_tools_cloud_key")
+        box.operator("mpfb_tools.save_cloud_key_from_clipboard", icon="PASTEDOWN")
         if os.environ.get("OPENAI_API_KEY") or cloud_key_file().is_file():
             box.label(text="API-Schlüssel lokal verfügbar", icon="CHECKMARK")
         box.operator("mpfb_tools.save_cloud_settings")
@@ -415,14 +430,14 @@ CLASSES = (
     MPFBTOOLS_OT_choose_library_entry, MPFBTOOLS_OT_rename_library_entry, MPFBTOOLS_OT_delete_library_entry,
     MPFBTOOLS_OT_save_curves, MPFBTOOLS_OT_save_character, MPFBTOOLS_OT_overwrite_library_entry,
     MPFBTOOLS_OT_load_character, MPFBTOOLS_PT_character_gallery, MPFBTOOLS_PT_characters,
-    MPFBTOOLS_OT_export_library, MPFBTOOLS_OT_import_library, MPFBTOOLS_OT_cloud_settings, MPFBTOOLS_PT_settings,
+    MPFBTOOLS_OT_export_library, MPFBTOOLS_OT_import_library, MPFBTOOLS_OT_cloud_key_from_clipboard,
+    MPFBTOOLS_OT_cloud_settings, MPFBTOOLS_PT_settings,
 )
 
 
 def register():
     bpy.types.Scene.mpfb_tools_figure_id = bpy.props.StringProperty()
     bpy.types.WindowManager.mpfb_tools_cloud_model = bpy.props.StringProperty(name="Bildanalyse-Modell", options={"SKIP_SAVE"})
-    bpy.types.WindowManager.mpfb_tools_cloud_key = bpy.props.StringProperty(name="API-Schlüssel", subtype="PASSWORD", options={"SKIP_SAVE"})
     if not bpy.app.background:
         bpy.app.timers.register(initialize, first_interval=.2, persistent=True)
     bpy.app.handlers.save_post.append(on_save)
@@ -448,6 +463,5 @@ def unregister():
     if bpy.app.timers.is_registered(initialize):
         bpy.app.timers.unregister(initialize)
     library_backup.flush()
-    del bpy.types.WindowManager.mpfb_tools_cloud_key
     del bpy.types.WindowManager.mpfb_tools_cloud_model
     del bpy.types.Scene.mpfb_tools_figure_id
