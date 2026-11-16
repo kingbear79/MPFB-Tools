@@ -10,10 +10,11 @@ import cloud_api as api
 
 
 def recipe(kind, **changes):
-    preset = {"H": "H10", "B": "B09", "A": "A02"}[kind]
+    fields = {} if kind == "H" else {"style": {"B": "B09", "A": "A02"}[kind]}
     return {
-        "name": preset, "style": preset, "color": "ash_brown", "certainty": "medium",
+        "name": "Testentwurf", "color": "ash_brown", "certainty": "medium",
         "visible": True, "notes": "Profil im Hauptbild",
+        **fields,
         **{key: value[1] for key, value in api.PARAMETERS[kind].items()},
         **changes,
     }
@@ -59,6 +60,11 @@ class ReferenceAnalysis(unittest.TestCase):
         schema = payload["text"]["format"]["schema"]
         self.assertEqual(schema["required"], ["H", "B"])
         self.assertFalse(schema["additionalProperties"])
+        hair_fields = schema["properties"]["H"]["properties"]
+        self.assertNotIn("style", hair_fields)
+        self.assertIn("nape_curl", hair_fields)
+        self.assertIn("nape_density", hair_fields)
+        self.assertIn("style", schema["properties"]["B"]["properties"])
         inputs = [part for part in payload["input"][0]["content"] if part["type"] == "input_image"]
         self.assertEqual([part["detail"] for part in inputs], ["high", "low", "low"])
         self.assertEqual(self.prepared[0], (self.main, True))
@@ -100,11 +106,21 @@ class ReferenceAnalysis(unittest.TestCase):
         self.assertFalse((self.root / "cache").exists())
 
     def test_only_valid_parameters(self):
-        for change in ({"style": "B01"}, {"color": "invalid"}, {"length": float("nan")},
-                       {"volume": False}, {"sides": 9}, {"notes": {"unexpected": True}}):
+        for change in ({"color": "invalid"}, {"length": float("nan")},
+                       {"volume": False}, {"fade": 9}, {"notes": {"unexpected": True}}):
             with self.subTest(change=change):
                 with self.assertRaises(ValueError):
                     api.clean_recipe("H", recipe("H", **change))
+
+    def test_existing_facial_hair_cache_survives_hair_cut_upgrade(self):
+        photos = api.references([self.main, self.left, self.right])
+        photos[1:] = sorted(photos[1:], key=lambda item: item[1])
+        old = api.cache_path(self.root / "cache", api.MODEL, photos, protocol=1)
+        api.write_cache(old, {"B": recipe("B"), "H": {"style": "H04"}})
+        result, missing, _ = self.analyze("HB")
+        self.assertEqual(missing, ("H",))
+        self.assertEqual(result["B"]["style"], "B09")
+        self.assertNotIn("style", result["H"])
 
 
 if __name__ == "__main__":

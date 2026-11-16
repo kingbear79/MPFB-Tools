@@ -14,7 +14,7 @@ from mathutils import Vector
 from . import cloud_api as api, hair_binding, library_ui, saved_assets
 from .attachment import figure_surface
 from .groom_profiles import STYLES
-from .hairstyles import add_groom
+from .hairstyles import REFERENCE_HAIR, add_groom
 from .library import discard_new
 
 
@@ -23,13 +23,12 @@ _pending = None
 COLOR_ITEMS = [(key, label, "") for key, (label, _) in api.COLORS.items()]
 COMPONENTS = [(kind, label, "") for kind, label in api.LABELS.items()]
 FIELD_NAMES = {"H": "hair", "B": "beard", "A": "brows"}
-LOCAL_STYLES = {"H": "H02", "B": "B03", "A": "A02"}
+LOCAL_STYLES = {"B": "B03", "A": "A02"}
 
 
 def recipe_class(kind, suffix):
     descriptions = {
         "name": bpy.props.StringProperty(name="Name"),
-        "style": bpy.props.EnumProperty(name="Grundform", items=[(sid, STYLES[sid], "") for sid in api.style_ids(kind)]),
         "color": bpy.props.EnumProperty(name="Farbe", items=COLOR_ITEMS),
         "visible": bpy.props.BoolProperty(name="Komponente übernehmen"),
         "certainty": bpy.props.StringProperty(),
@@ -37,6 +36,9 @@ def recipe_class(kind, suffix):
         "preview": bpy.props.PointerProperty(type=bpy.types.Object),
         "preview_signature": bpy.props.StringProperty(),
     }
+    if kind != "H":
+        descriptions["style"] = bpy.props.EnumProperty(
+            name="Grundform", items=[(sid, STYLES[sid], "") for sid in api.style_ids(kind)])
     for key, (label, initial, low, high, _) in api.PARAMETERS[kind].items():
         descriptions[key] = bpy.props.FloatProperty(name=label, default=initial, min=low, max=high)
     return type(f"MPFBTOOLS_PG_reference_{suffix}", (bpy.types.PropertyGroup,),
@@ -60,6 +62,7 @@ class MPFBTOOLS_PG_reference_job(bpy.types.PropertyGroup):
     analyzed_paths: bpy.props.StringProperty()
     available: bpy.props.StringProperty()
     status: bpy.props.StringProperty()
+    show_parameters: bpy.props.BoolProperty(name="Schnitt und Textur bearbeiten")
     hair: bpy.props.PointerProperty(type=RECIPES["H"])
     beard: bpy.props.PointerProperty(type=RECIPES["B"])
     brows: bpy.props.PointerProperty(type=RECIPES["A"])
@@ -163,7 +166,7 @@ class MPFBTOOLS_OT_reference_remove_image(bpy.types.Operator):
 
 class MPFBTOOLS_OT_reference_analyze(bpy.types.Operator):
     bl_idname = "mpfb_tools.reference_analyze"
-    bl_label = "Bilder analysieren"
+    bl_label = "Referenzen analysieren"
     bl_description = "Verwendet gespeicherte Analysen oder sendet die Referenzbilder für die fehlenden Komponenten an OpenAI"
 
     @classmethod
@@ -262,10 +265,10 @@ class MPFBTOOLS_OT_reference_analyze(bpy.types.Operator):
             self.release()
 
 
-class MPFBTOOLS_OT_reference_local_preset(bpy.types.Operator):
-    bl_idname = "mpfb_tools.reference_local_preset"
-    bl_label = "Mit lokaler Grundform starten"
-    bl_description = "Verwendet die gewählte Bibliotheksgrundform oder eine Standardform ohne API-Aufruf"
+class MPFBTOOLS_OT_reference_manual(bpy.types.Operator):
+    bl_idname = "mpfb_tools.reference_manual"
+    bl_label = "Manuell entwerfen"
+    bl_description = "Startet mit neutralen Einstellungen ohne Bildanalyse"
 
     @classmethod
     def poll(cls, context):
@@ -275,29 +278,29 @@ class MPFBTOOLS_OT_reference_local_preset(bpy.types.Operator):
         state = settings(context)
         recipes = {}
         for kind in parts(state):
-            style = getattr(context.scene, library_ui.SELECTIONS[kind])
-            if style not in api.style_ids(kind):
-                style = LOCAL_STYLES[kind]
             recipes[kind] = {
-                "style": style, "name": STYLES[style], "visible": True, "color": "dark_brown",
+                "name": f"{api.LABELS[kind]} · Entwurf", "visible": True, "color": "dark_brown",
                 "certainty": "medium", "notes": "",
                 **{key: spec[1] for key, spec in api.PARAMETERS[kind].items()},
             }
+            if kind in LOCAL_STYLES:
+                recipes[kind]["style"] = LOCAL_STYLES[kind]
         accept_result(state, {"recipes": recipes, "requested": False}, signature(state))
-        state.status = "Lokale Grundformen · 0 API-Aufrufe"
+        state.status = "Manueller Entwurf · 0 API-Aufrufe"
+        state.show_parameters = True
         return {"FINISHED"}
 
 
 def recipe_dict(kind, recipe):
     return api.clean_recipe(kind, {
-        "visible": recipe.visible, "name": recipe.name, "style": recipe.style,
-        "color": recipe.color, "certainty": recipe.certainty, "notes": recipe.notes,
-        **{param: getattr(recipe, param) for param in api.PARAMETERS[kind]},
+        "visible": recipe.visible, "name": recipe.name,
+        "certainty": recipe.certainty, "notes": recipe.notes,
+        **{param: getattr(recipe, param) for param in api.recipe_fields(kind)},
     })
 
 
 def geometry_signature(kind, recipe):
-    return json.dumps([recipe[key] for key in ("style", "color", *api.PARAMETERS[kind])])
+    return json.dumps([recipe[key] for key in api.recipe_fields(kind)])
 
 
 def current_preview(context, kind, field):
@@ -327,7 +330,7 @@ def replace_preview(context, state):
     before = set(bpy.data.user_map())
     try:
         for kind, field, recipe in recipes:
-            obj = add_groom(context, surface, recipe["style"], recipe=recipe)
+            obj = add_groom(context, surface, REFERENCE_HAIR if kind == "H" else recipe["style"], recipe=recipe)
             obj[saved_assets.GROOM_PREVIEW] = kind
             obj[saved_assets.OWNER] = base
             new_objects.append((field, obj, geometry_signature(kind, recipe)))
@@ -349,7 +352,7 @@ def replace_preview(context, state):
 
 class MPFBTOOLS_OT_reference_preview(bpy.types.Operator):
     bl_idname = "mpfb_tools.reference_preview"
-    bl_label = "Lokale Vorschau erstellen"
+    bl_label = "Vorschau auf Figur erzeugen"
     bl_description = "Erzeugt oder ersetzt die Referenz-Hair-Curves auf der ausgewählten Figur"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -376,7 +379,7 @@ class MPFBTOOLS_OT_reference_preview(bpy.types.Operator):
 class MPFBTOOLS_OT_reference_view(bpy.types.Operator):
     bl_idname = "mpfb_tools.reference_view"
     bl_label = "Haarvorschau ansehen"
-    angle: bpy.props.EnumProperty(items=[("front", "Vorn", ""), ("side", "Profil", ""),
+    angle: bpy.props.EnumProperty(items=[("front", "Vorn", ""), ("side", "Profil", ""), ("back", "Hinten", ""),
                                         ("quarter", "Dreiviertel", "")])
 
     @classmethod
@@ -396,7 +399,8 @@ class MPFBTOOLS_OT_reference_view(bpy.types.Operator):
             points.extend(evaluated.matrix_world @ Vector(point) for point in evaluated.bound_box)
         low = Vector([min(p[i] for p in points) for i in range(3)])
         high = Vector([max(p[i] for p in points) for i in range(3)])
-        direction = Vector({"front": (0, -1, .04), "side": (-1, -.02, .04), "quarter": (-1, -1, .15)}[self.angle])
+        direction = Vector({"front": (0, -1, .04), "side": (-1, -.02, .04),
+                            "back": (0, 1, .04), "quarter": (-1, -1, .15)}[self.angle])
         surface = hair_binding.mesh_surface(objects[0])
         if surface is not None:
             direction = surface.matrix_world.to_quaternion() @ direction
@@ -451,7 +455,7 @@ class MPFBTOOLS_PT_reference(bpy.types.Panel):
         inputs.label(text="Bildanalyse über OpenAI")
         inputs.prop(state, "refresh")
         inputs.operator("mpfb_tools.reference_analyze", icon="VIEWZOOM")
-        inputs.operator("mpfb_tools.reference_local_preset", icon="CURVES_DATA")
+        inputs.operator("mpfb_tools.reference_manual", icon="CURVES_DATA")
         if state.status:
             for line in textwrap.wrap(state.status, width=35):
                 area.label(text=line)
@@ -463,7 +467,7 @@ class MPFBTOOLS_PT_reference(bpy.types.Panel):
         result.operator("mpfb_tools.reference_preview", icon="CURVES_DATA")
         if any(recipe_state(state, kind).preview for kind in ready):
             row = result.row(align=True)
-            for key, label in (("front", "Vorn"), ("side", "Profil"), ("quarter", "Dreiviertel")):
+            for key, label in (("front", "Vorn"), ("side", "Profil"), ("back", "Hinten"), ("quarter", "Dreiviertel")):
                 row.operator("mpfb_tools.reference_view", text=label).angle = key
         certainty = {"low": "Gering", "medium": "Mittel", "high": "Hoch"}
         for kind in ready:
@@ -478,10 +482,20 @@ class MPFBTOOLS_PT_reference(bpy.types.Panel):
                 if recipe.notes:
                     box.label(text=f"Erkennung {certainty.get(recipe.certainty, '')}")
                 box.prop(recipe, "name")
-                box.prop(recipe, "style")
+                if kind != "H":
+                    box.prop(recipe, "style")
                 box.prop(recipe, "color")
-                for key in api.PARAMETERS[kind]:
-                    box.prop(recipe, key)
+                if kind == "H":
+                    box.prop(state, "show_parameters")
+                    if state.show_parameters:
+                        for label, keys in api.HAIR_GROUPS.items():
+                            section = box.box()
+                            section.label(text=label)
+                            for key in keys:
+                                section.prop(recipe, key)
+                else:
+                    for key in api.PARAMETERS[kind]:
+                        box.prop(recipe, key)
                 save = box.row()
                 save.enabled = current_preview(context, kind, recipe) is not None
                 save.operator("mpfb_tools.reference_save", icon="FILE_TICK").group = kind
@@ -490,7 +504,7 @@ class MPFBTOOLS_PT_reference(bpy.types.Panel):
 CLASSES = (
     *RECIPES.values(), MPFBTOOLS_PG_reference_path, MPFBTOOLS_PG_reference_job,
     MPFBTOOLS_OT_reference_add_images, MPFBTOOLS_OT_reference_remove_image,
-    MPFBTOOLS_OT_reference_analyze, MPFBTOOLS_OT_reference_local_preset,
+    MPFBTOOLS_OT_reference_analyze, MPFBTOOLS_OT_reference_manual,
     MPFBTOOLS_OT_reference_preview, MPFBTOOLS_OT_reference_view,
     MPFBTOOLS_OT_reference_save, MPFBTOOLS_PT_reference,
 )

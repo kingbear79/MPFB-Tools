@@ -13,9 +13,11 @@ from .cloud_api import COLORS
 from .groom_profiles import BROWS, STYLES, beard_profile, brow_z, scalp_profile, smooth
 from .hair import add_hair_modifier, region_weights
 from .hair_binding import remember_binding
+from .reference_hair import scalp_section, scalp_strand, scalp_underlayer
 
 
 MARKER = "mpfb_tools_hairstyle"
+REFERENCE_HAIR = "H_REFERENCE"
 
 
 def detailed_scalp_path(style, root, normal, length, height, top, direction, wave, phase, tree, normal_at):
@@ -254,22 +256,6 @@ def brow_paths(style, points, triangles, faces, tree, uv, origin, scale, recipe=
     return paths, roots, radii, tones
 
 
-def reference_scalp(style, root, normal, depth, recipe):
-    profile_root = root.copy()
-    front = 1 - smooth(.028, .075, root.y)
-    profile_root.z -= .014 * recipe["hairline"] * front
-    density, length, lift, top, flow, wave = scalp_profile(style, profile_root, normal, depth)
-    rear = smooth(.55, .93, root.y / depth)
-    size = recipe["sides"] * (1 - top) + recipe["length"] * top
-    size = size * (1 - rear) + recipe["nape"] * rear
-    angle = recipe["direction"] * math.pi / 4
-    x, y, z = flow
-    direction = (x * math.cos(angle) - y * math.sin(angle),
-                 x * math.sin(angle) + y * math.cos(angle), z)
-    wave += .007 * recipe["curl"] * top
-    return density, length * size, lift * recipe["volume"], top, direction, wave
-
-
 def reference_beard(style, root, recipe):
     profile_root = root.copy()
     # Keep the philtrum and lip mask fixed while raising the cheek line.
@@ -284,6 +270,7 @@ def reference_beard(style, root, recipe):
 def groom_paths(surface, style, recipe=None):
     beard = style.startswith("B")
     eyebrow = style in BROWS
+    reference = style == REFERENCE_HAIR
     revised = style != "H01" and not beard and not eyebrow
     mesh = surface.data
     uv_layer = mesh.uv_layers.active
@@ -319,6 +306,7 @@ def groom_paths(surface, style, recipe=None):
     if eyebrow:
         return brow_paths(style, points, triangles, faces, tree, uv, Vector((center, front, crown)), scale, recipe)
     rng = random.Random(492)
+    strand_rng = random.Random() if reference else rng
     paths, roots, radii, tones = [], [], [], []
     depth = (rear - front) / scale
 
@@ -337,11 +325,16 @@ def groom_paths(surface, style, recipe=None):
     for face, triangle in enumerate(triangles):
         indices = faces[face]
         weights = [mask.get(i, 0) for i in indices]
+        a, b, c = [points[i] for i in indices]
+        if reference:
+            # Extend support across the upper scalp. The old gallery mask
+            # can have local gaps on an MPFB topology transfer.
+            weights = [max(weight, smooth(-.097, -.057, point.z))
+                       for weight, point in zip(weights, (a, b, c))]
         if max(weights) == 0:
             continue
-        a, b, c = [points[i] for i in indices]
         count = triangle.area / (scale * scale) * (620000 if beard else 810000)
-        if recipe is not None:
+        if recipe is not None and not reference:
             count *= recipe["density"]
         uv_a, uv_b, uv_c = [uv[i].uv for i in triangle.loops]
         for _ in range(int(count) + (rng.random() < count % 1)):
@@ -350,32 +343,41 @@ def groom_paths(surface, style, recipe=None):
                 u, v = 1 - u, 1 - v
             w = 1 - u - v
             mask_value = sum(value * factor for value, factor in zip(weights, (w, u, v)))
+            if reference:
+                # Changing a region's density or length must not resample
+                # the roots or curl phases of unrelated regions.
+                strand_rng.seed(rng.getrandbits(32))
             root = a * w + b * u + c * v
             n = (normals[indices[0]] * w + normals[indices[1]] * u + normals[indices[2]] * v).normalized()
             x, _, z = root
             raw_density = smooth(.18, .69, mask_value) if revised else smooth(.13, .62, mask_value)
-            if beard:
+            if reference:
+                section = scalp_section(root, n, depth, recipe)
+                density, length = section[:2]
+            elif beard:
                 density, length, wave, upper_lip = (beard_profile(style, root) if recipe is None else
                                                      reference_beard(style, root, recipe))
             else:
-                density, length, height, top, direction, wave = (scalp_profile(style, root, n, depth) if recipe is None else
-                                                                  reference_scalp(style, root, n, depth, recipe))
+                density, length, height, top, direction, wave = scalp_profile(style, root, n, depth)
             if rng.random() > raw_density * density:
                 continue
-            length *= rng.uniform(.83, 1.16)
-            phase = rng.uniform(0, math.tau)
-            steps = 5 if length < .006 else 12
-            path = [root - n * .00015]
-            contact = root
-            outward = 1 if x >= 0 else -1
+            if reference:
+                path = scalp_strand(root, n, section, recipe, strand_rng, tree)
+            else:
+                length *= rng.uniform(.83, 1.16)
+                phase = rng.uniform(0, math.tau)
             if beard:
                 path = beard_path(style, root, n, length, wave, upper_lip, phase, tree)
             elif style == "H10":
                 path = burst_mohawk_path(root, n, length, height, top, direction, wave, phase, tree, normal_at)
-            elif revised:
+            elif revised and not reference:
                 path = detailed_scalp_path(style, root, n, length, height, top, direction,
                                            wave, phase, tree, normal_at)
-            else:
+            elif not reference:
+                steps = 5 if length < .006 else 12
+                path = [root - n * .00015]
+                contact = root
+                outward = 1 if x >= 0 else -1
                 for step in range(1, steps + 1):
                     t = step / steps
                     side = Vector((.09 * outward, .86, -.55))
@@ -395,13 +397,17 @@ def groom_paths(surface, style, recipe=None):
             if len(path) < 2:
                 continue
             paths.append([(p.x * scale + center, p.y * scale + front, p.z * scale + crown) for p in path])
-            roots.append(tuple(uv_a * w + uv_b * u + uv_c * v))
-            thickness = (.000115 if beard else .000075 + .000082 * smooth(-.156, -.064, z)) * rng.uniform(.76, 1.22) * scale
+            root_uv = tuple(uv_a * w + uv_b * u + uv_c * v)
+            roots.append(root_uv)
+            thickness = (.000115 if beard else .000075 + .000082 * smooth(-.156, -.064, z)) * strand_rng.uniform(.76, 1.22) * scale
             if beard:
                 thickness *= .74 if style == "B01" else .87
                 cut_taper = .48 if style in {"B01", "B03", "B06"} else .72
                 if style == "B09":
                     thickness *= .57 + .43 * smooth(.003, .016, length)
+            elif reference:
+                thickness *= .66 + .23 * smooth(.003, .038, length)
+                cut_taper = .65
             elif revised:
                 # Individual strands read as fibres rather than broad bundles.
                 thickness *= .72 if style in {"H07", "H08"} else .84
@@ -411,7 +417,15 @@ def groom_paths(surface, style, recipe=None):
             else:
                 cut_taper = .82
             radii.extend(thickness * (1 - cut_taper * (i / (len(path) - 1))**1.7) for i in range(len(path)))
-            tones.append(max(0, min(1, rng.gauss(.41, .17))))
+            tone = max(0, min(1, strand_rng.gauss(.41, .17)))
+            tones.append(tone)
+            if reference and length > .036 and density > .53 and strand_rng.random() < recipe["clump"]:
+                underlayer = scalp_underlayer(root, n, length, section[3], strand_rng, tree)
+                if len(underlayer) > 1:
+                    paths.append([(p.x * scale + center, p.y * scale + front, p.z * scale + crown) for p in underlayer])
+                    roots.append(root_uv)
+                    radii.extend(thickness * .86 * (1 - .80 * i / (len(underlayer) - 1)) for i in range(len(underlayer)))
+                    tones.append(tone * .75)
 
     if not paths:
         raise ValueError("Auf diesem Mesh konnten keine Strähnen angelegt werden.")
@@ -486,7 +500,7 @@ def add_groom(context, surface, style, recipe=None):
             attr = curves.attributes.get(name) or curves.attributes.new(name, kind, domain)
             attr.data.foreach_set(field, np.asarray(data, dtype=np.float32).ravel())
         curves.materials.append(hair_material(style, recipe["color"] if recipe is not None else None))
-        add_hair_modifier(obj, frizz_distance={"H10": .00070, "B09": .00060}.get(style))
+        add_hair_modifier(obj, frizz_distance={"H10": .00070, "B09": .00060, REFERENCE_HAIR: .00028}.get(style))
         context.view_layer.update()
         remember_binding(context.scene, obj)
         return obj
