@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Test reference analysis and cache
+        run: python3 tests/reference_api.py
       - name: Download Blender 4.5.3
         run: |
           archive=blender-4.5.3-linux-x64.tar.xz

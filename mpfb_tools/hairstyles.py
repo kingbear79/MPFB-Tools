@@ -9,6 +9,7 @@ import numpy as np
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
+from .cloud_api import COLORS
 from .groom_profiles import BROWS, STYLES, beard_profile, brow_z, scalp_profile, smooth
 from .hair import add_hair_modifier, region_weights
 from .hair_binding import remember_binding
@@ -195,13 +196,16 @@ def brow_ridge_offset(tree):
     return median(ridges) + .100 if ridges else 0
 
 
-def brow_paths(style, points, triangles, faces, tree, uv, origin, scale):
+def brow_paths(style, points, triangles, faces, tree, uv, origin, scale, recipe=None):
     rng = random.Random(913)
     paths, roots, radii, tones = [], [], [], []
-    length, _, _, _, _, thickness = BROWS[style]
+    length, start, _, _, _, thickness = BROWS[style]
+    profile = recipe or {"width": 1, "thickness": 1, "arch": 1, "length": 1, "density": 1}
+    length *= profile["width"]
+    thickness *= profile["thickness"]
     ridge_offset = brow_ridge_offset(tree)
     for side in (-1, 1):
-        for _ in range(710):
+        for _ in range(round(710 * profile["density"])):
             t = rng.random()
             end = smooth(.59, 1, t)
             inner_fade = smooth(0, .14, t)
@@ -209,7 +213,8 @@ def brow_paths(style, points, triangles, faces, tree, uv, origin, scale):
                 continue
             width = thickness * (.50 + .50 * inner_fade) * (1 - .84 * end)
             x = side * (.0087 + length * t + rng.uniform(-.0011, .0011))
-            z = brow_z(style, t) + ridge_offset + rng.triangular(-.59, .58, 0) * width
+            z = start + (brow_z(style, t) - start) * profile["arch"] + ridge_offset
+            z += rng.triangular(-.59, .58, 0) * width
             root, normal, face, _ = tree.ray_cast((x, -.20, z), (0, 1, 0), .34)
             if root is None or normal.y > -.18:
                 continue
@@ -225,6 +230,7 @@ def brow_paths(style, points, triangles, faces, tree, uv, origin, scale):
             roots.append(tuple(uv_a * (1 - v - w) + uv_b * v + uv_c * w))
             head = 1 - smooth(0, .33, t)
             strand_length = (.0025 + .0032 * (1 - end)) * (.68 + .32 * inner_fade) * rng.uniform(.71, 1.24)
+            strand_length *= profile["length"]
             path = [root - normal * .00011]
             current = root
             for step in range(1, 7):
@@ -248,7 +254,34 @@ def brow_paths(style, points, triangles, faces, tree, uv, origin, scale):
     return paths, roots, radii, tones
 
 
-def groom_paths(surface, style):
+def reference_scalp(style, root, normal, depth, recipe):
+    profile_root = root.copy()
+    front = 1 - smooth(.028, .075, root.y)
+    profile_root.z -= .014 * recipe["hairline"] * front
+    density, length, lift, top, flow, wave = scalp_profile(style, profile_root, normal, depth)
+    rear = smooth(.55, .93, root.y / depth)
+    size = recipe["sides"] * (1 - top) + recipe["length"] * top
+    size = size * (1 - rear) + recipe["nape"] * rear
+    angle = recipe["direction"] * math.pi / 4
+    x, y, z = flow
+    direction = (x * math.cos(angle) - y * math.sin(angle),
+                 x * math.sin(angle) + y * math.cos(angle), z)
+    wave += .007 * recipe["curl"] * top
+    return density, length * size, lift * recipe["volume"], top, direction, wave
+
+
+def reference_beard(style, root, recipe):
+    profile_root = root.copy()
+    # Keep the philtrum and lip mask fixed while raising the cheek line.
+    outside_mouth = max(smooth(.029, .055, abs(root.x)), smooth(.015, .052, root.y))
+    profile_root.z -= .016 * recipe["cheek"] * outside_mouth * smooth(-.088, -.053, root.z)
+    density, length, wave, upper_lip = beard_profile(style, profile_root)
+    length *= recipe["moustache"] if upper_lip else recipe["length"]
+    wave += .004 * recipe["curl"] * smooth(.004, .033, length)
+    return density, length, wave, upper_lip
+
+
+def groom_paths(surface, style, recipe=None):
     beard = style.startswith("B")
     eyebrow = style in BROWS
     revised = style != "H01" and not beard and not eyebrow
@@ -284,7 +317,7 @@ def groom_paths(surface, style):
     tree = BVHTree.FromPolygons(points, faces, all_triangles=True)
     uv = uv_layer.data
     if eyebrow:
-        return brow_paths(style, points, triangles, faces, tree, uv, Vector((center, front, crown)), scale)
+        return brow_paths(style, points, triangles, faces, tree, uv, Vector((center, front, crown)), scale, recipe)
     rng = random.Random(492)
     paths, roots, radii, tones = [], [], [], []
     depth = (rear - front) / scale
@@ -308,6 +341,8 @@ def groom_paths(surface, style):
             continue
         a, b, c = [points[i] for i in indices]
         count = triangle.area / (scale * scale) * (620000 if beard else 810000)
+        if recipe is not None:
+            count *= recipe["density"]
         uv_a, uv_b, uv_c = [uv[i].uv for i in triangle.loops]
         for _ in range(int(count) + (rng.random() < count % 1)):
             u, v = rng.random(), rng.random()
@@ -320,9 +355,11 @@ def groom_paths(surface, style):
             x, _, z = root
             raw_density = smooth(.18, .69, mask_value) if revised else smooth(.13, .62, mask_value)
             if beard:
-                density, length, wave, upper_lip = beard_profile(style, root)
+                density, length, wave, upper_lip = (beard_profile(style, root) if recipe is None else
+                                                     reference_beard(style, root, recipe))
             else:
-                density, length, height, top, direction, wave = scalp_profile(style, root, n, depth)
+                density, length, height, top, direction, wave = (scalp_profile(style, root, n, depth) if recipe is None else
+                                                                  reference_scalp(style, root, n, depth, recipe))
             if rng.random() > raw_density * density:
                 continue
             length *= rng.uniform(.83, 1.16)
@@ -381,13 +418,18 @@ def groom_paths(surface, style):
     return paths, roots, radii, tones
 
 
-def hair_material(style):
+def hair_material(style, palette=None):
     finish = {"H02": ("Pomade", .34, .25), "H03": ("Matt", .55, .15)}.get(style)
     color, diffuse, dark, light = {
         "H10": ("Aschbraun", (.113, .085, .059), (.021, .015, .010), (.145, .112, .076)),
         "B09": ("Sandbraun", (.104, .068, .043), (.020, .011, .006), (.151, .103, .060)),
     }.get(style, ("Dunkelbraun", (.043, .019, .010), (.005, .0025, .0014), (.037, .017, .008)))
     name = f"MPFB-Tools · {color}"
+    if palette is not None:
+        label, diffuse = COLORS[palette]
+        name = f"MPFB-Tools · Referenz · {label}"
+        dark = tuple(channel * .38 for channel in diffuse)
+        light = tuple(min(1., channel * 1.12) for channel in diffuse)
     if finish:
         name += f" · {finish[0]}"
     mat = bpy.data.materials.get(name)
@@ -410,8 +452,8 @@ def hair_material(style):
     return mat
 
 
-def add_groom(context, surface, style):
-    paths, roots, radii, tones = groom_paths(surface, style)
+def add_groom(context, surface, style, recipe=None):
+    paths, roots, radii, tones = groom_paths(surface, style, recipe)
     old_active = context.view_layer.objects.active
     old_selection = list(context.selected_objects)
     obj = None
@@ -431,7 +473,7 @@ def add_groom(context, surface, style):
         obj.matrix_parent_inverse = Matrix.Identity(4)
         obj.matrix_basis = Matrix.Identity(4)
         curves.surface_uv_map = surface.data.uv_layers.active.name
-        obj.name = curves.name = STYLES[style]
+        obj.name = curves.name = STYLES[style] if recipe is None else recipe["name"]
         obj[MARKER] = style
         curves.add_curves([len(path) for path in paths])
         coords = np.asarray([p for path in paths for p in path], dtype=np.float32).ravel()
@@ -443,7 +485,7 @@ def add_groom(context, surface, style):
         ):
             attr = curves.attributes.get(name) or curves.attributes.new(name, kind, domain)
             attr.data.foreach_set(field, np.asarray(data, dtype=np.float32).ravel())
-        curves.materials.append(hair_material(style))
+        curves.materials.append(hair_material(style, recipe["color"] if recipe is not None else None))
         add_hair_modifier(obj, frizz_distance={"H10": .00070, "B09": .00060}.get(style))
         context.view_layer.update()
         remember_binding(context.scene, obj)

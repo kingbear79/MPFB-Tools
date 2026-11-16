@@ -2,7 +2,7 @@
 
 bl_info = {
     "name": "MPFB-Tools",
-    "version": (2, 0, 1),
+    "version": (2, 1, 0),
     "blender": (4, 5, 0),
     "location": "3D View > Sidebar > MPFB-Tools",
     "category": "Object",
@@ -20,7 +20,7 @@ import subprocess
 import bpy
 from bpy.app.handlers import persistent
 
-from . import catalog, hair_binding, library_backup, library_ui, previews, saved_assets
+from . import catalog, cloud_ui, hair_binding, library_backup, library_ui, previews, saved_assets
 from .attachment import append_body, figure_surface
 from .footwear import append_boots
 from .shoe_fit import MPFBTOOLS_OT_refit_shoes
@@ -602,6 +602,7 @@ CLASSES = (
     MPFBTOOLS_OT_rename_asset, MPFBTOOLS_OT_delete_asset,
     MPFBTOOLS_PT_body_gallery, MPFBTOOLS_PT_shoe_gallery, MPFBTOOLS_OT_refit_shoes,
     *library_ui.CLASSES,
+    *cloud_ui.CLASSES,
 )
 
 
@@ -634,9 +635,11 @@ def register():
     bpy.app.timers.register(migrate_scene_settings, persistent=True)
     hair_binding.register()
     library_ui.register()
+    cloud_ui.register()
 
 
 def unregister():
+    cloud_ui.unregister()
     library_ui.unregister()
     hair_binding.unregister()
     if bpy.app.timers.is_registered(migrate_scene_settings):

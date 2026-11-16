@@ -18,4 +18,4 @@ python3 tools/build.py --blender /path/to/blender --output dist
 
 Für Releases dieselbe Version im Manifest und in `mpfb_tools/__init__.py` verwenden. Ein Tag wie `v2.0.0` baut die Extension und veröffentlicht den Blender-Index. Die Build-Dateiliste umfasst nur Programmcode, die eingebauten Vorschauen, die Haar-Node-Gruppe und die Basis-Bär-Parameter. Benutzerbibliotheken, Projekte, Bibliotheksbackups und Cloud-Schlüssel liegen außerhalb des Repositories.
 
-[Entwurf für die Generierung anhand von Referenzbildern](docs/referenzbilder.md)
+[Frisuren, Bärte und Augenbrauen aus Referenzbildern](docs/referenzbilder.md)

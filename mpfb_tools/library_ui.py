@@ -9,6 +9,7 @@ from bpy.app.handlers import persistent
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from . import catalog, library_backup, previews, saved_assets
+from .cloud_api import MODEL
 
 
 ITEMS = [(key, label, "") for key, label in catalog.GROOMS.items()]
@@ -151,14 +152,14 @@ class MPFBTOOLS_OT_delete_library_entry(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def publish(operator, context, group, name, confirmed, writer):
+def publish(operator, context, group, name, confirmed, writer, *, picked_object=None):
     root = directory(context)
     try:
         found = catalog.lookup(root, group, name=name)
         if found is not None and confirmed != found[0]:
             status = bpy.ops.mpfb_tools.overwrite_library_entry(
                 "INVOKE_DEFAULT", group=group, name=name.strip(), key=found[0],
-                picked_object=context.active_object.name,
+                picked_object=(picked_object or context.active_object).name,
             )
             return {"CANCELLED"} if status == {"CANCELLED"} else {"FINISHED"}
         key = catalog.save(root, group, name, confirmed, writer)
@@ -350,7 +351,7 @@ def cloud_key_file():
 
 def load_cloud_settings(context):
     info = catalog.settings(directory(context)).get("cloud", {})
-    context.window_manager.mpfb_tools_cloud_model = info.get("model", "")
+    context.window_manager.mpfb_tools_cloud_model = info.get("model") or MODEL
 
 
 class MPFBTOOLS_OT_cloud_settings(bpy.types.Operator):

@@ -15,6 +15,7 @@ CHARACTER_COLLECTION = "MPFB Library Character"
 GROOM_OBJECT = "MPFB Library Groom"
 STANDARD = Path(__file__).with_name("defaults") / "basis_baer.json"
 OWNER = "mpfb_tools_figure"
+GROOM_PREVIEW = "mpfb_tools_reference_preview"
 
 
 def select_only(context, obj):
@@ -218,7 +219,7 @@ def save_groom(context, obj, output):
         binding.apply_transfer(copy, base, uv.name, result)
         copy.data.surface = None
         copy.parent = None
-        for prop in (OWNER, binding.BASE, binding.MESH, binding.MATRIX, binding.CURVE_MATRIX, binding.SKIN):
+        for prop in (OWNER, GROOM_PREVIEW, binding.BASE, binding.MESH, binding.MATRIX, binding.CURVE_MATRIX, binding.SKIN):
             if prop in copy:
                 del copy[prop]
         # Store only the rest skin triangles, with the same triangle order
