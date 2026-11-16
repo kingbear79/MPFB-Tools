@@ -7,7 +7,7 @@
       "id": "mpfb_tools",
       "name": "MPFB-Tools",
       "tagline": "Manage reusable figures, grooms and assets for MPFB",
-      "version": "2.3.0",
+      "version": "2.3.1",
       "type": "add-on",
       "maintainer": "MPFB-Tools contributors",
       "license": [
@@ -21,9 +21,9 @@
       "tags": [
         "Object"
       ],
-      "archive_url": "./mpfb_tools-2.3.0.zip",
-      "archive_size": 3199684,
-      "archive_hash": "sha256:5a4e74fc80498d0afd109f7a02ae7ec9ee8cb6dd66f99b25a98927f8729ab26b"
+      "archive_url": "./mpfb_tools-2.3.1.zip",
+      "archive_size": 3201232,
+      "archive_hash": "sha256:f022649cbb44700b965c9278236c578161bec571eae469894b37c3e4183decf5"
     }
   ]
 }
