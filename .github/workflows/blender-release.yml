@@ -19,8 +19,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Download Blender 4.5.3
         run: |
-          curl -fSL --retry 3 https://download.blender.org/release/Blender4.5/blender-4.5.3-linux-x64.tar.xz -o "$RUNNER_TEMP/blender.tar.xz"
-          tar -xf "$RUNNER_TEMP/blender.tar.xz" -C "$RUNNER_TEMP"
+          archive=blender-4.5.3-linux-x64.tar.xz
+          checksum=975c58fcb244273838534bba771e64ad87739216b0f9b39a888531a49a72d845
+          cd "$RUNNER_TEMP"
+          for mirror in https://mirror.blender.org https://mirror.clarkson.edu/blender https://download.blender.org; do
+            if curl -fSL --retry 2 "$mirror/release/Blender4.5/$archive" -o "$archive" &&
+               printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c; then
+              tar -xf "$archive"
+              exit 0
+            fi
+          done
+          exit 1
       - name: Test legacy scene migration
         run: |
           "$RUNNER_TEMP/blender-4.5.3-linux-x64/blender" -b -Y --factory-startup --python-exit-code 1 -P tests/legacy_scene_settings.py
