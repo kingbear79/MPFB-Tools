@@ -21,6 +21,9 @@ jobs:
         run: |
           curl -fSL --retry 3 https://download.blender.org/release/Blender4.5/blender-4.5.3-linux-x64.tar.xz -o "$RUNNER_TEMP/blender.tar.xz"
           tar -xf "$RUNNER_TEMP/blender.tar.xz" -C "$RUNNER_TEMP"
+      - name: Test legacy scene migration
+        run: |
+          "$RUNNER_TEMP/blender-4.5.3-linux-x64/blender" -b -Y --factory-startup --python-exit-code 1 -P tests/legacy_scene_settings.py
       - name: Build package and index
         run: |
           python3 tools/build.py --blender "$RUNNER_TEMP/blender-4.5.3-linux-x64/blender" --output "$RUNNER_TEMP/blender-feed"

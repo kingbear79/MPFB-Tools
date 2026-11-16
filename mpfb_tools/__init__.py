@@ -2,7 +2,7 @@
 
 bl_info = {
     "name": "MPFB-Tools",
-    "version": (2, 0, 0),
+    "version": (2, 0, 1),
     "blender": (4, 5, 0),
     "location": "3D View > Sidebar > MPFB-Tools",
     "category": "Object",
@@ -18,6 +18,7 @@ from pathlib import Path
 import subprocess
 
 import bpy
+from bpy.app.handlers import persistent
 
 from . import catalog, hair_binding, library_backup, library_ui, previews, saved_assets
 from .attachment import append_body, figure_surface
@@ -31,6 +32,13 @@ from .library import BODY, CATEGORIES, SHOES, entries, find_entry, register_asse
 
 DEFAULT_DIRECTORY = str(Path.home() / "Documents" / "MPFB-Tools")
 CATEGORY_ITEMS = [(key, label, "") for key, label in CATEGORIES.items()]
+GENERATOR_SETTINGS = {category: f"mpfb_tools_library_{category}" for category in (BODY, SHOES)}
+
+
+def generator_settings(scene, category):
+    return getattr(scene, GENERATOR_SETTINGS[category])
+
+
 def directory(context):
     prefs = context.preferences.addons[__package__].preferences
     value = prefs.template_directory.strip()
@@ -46,7 +54,7 @@ def directory_changed(_prefs, context):
 
 
 def selected_asset(context, category, assets):
-    settings = getattr(context.scene, f"mpfb_tools_{category}")
+    settings = generator_settings(context.scene, category)
     return next((entry for entry in assets if entry[0].name == settings.selected_id),
                 assets[0] if assets else None)
 
@@ -139,7 +147,7 @@ class MPFBTOOLS_OT_import_template(bpy.types.Operator):
 
     def invoke(self, context, event):
         if self.category in (BODY, SHOES):
-            settings = getattr(context.scene, f"mpfb_tools_{self.category}")
+            settings = generator_settings(context.scene, self.category)
             if find_entry(directory(context), self.category, settings.asset_name):
                 return context.window_manager.invoke_confirm(
                     self, event, title="Vorlage überschreiben?",
@@ -151,7 +159,7 @@ class MPFBTOOLS_OT_import_template(bpy.types.Operator):
     def execute(self, context):
         if self.category not in (BODY, SHOES):
             return {"CANCELLED"}
-        settings = getattr(context.scene, f"mpfb_tools_{self.category}")
+        settings = generator_settings(context.scene, self.category)
         try:
             key = register_asset(directory(context), self.category, settings.asset_name,
                                  Path(bpy.path.abspath(settings.filepath)))
@@ -172,7 +180,7 @@ class MPFBTOOLS_OT_new_template(bpy.types.Operator):
     def execute(self, context):
         if self.category not in (BODY, SHOES):
             return {"CANCELLED"}
-        settings = getattr(context.scene, f"mpfb_tools_{self.category}")
+        settings = generator_settings(context.scene, self.category)
         path = directory(context) / "Entwürfe"
         name = bpy.path.clean_name(settings.asset_name.strip()) or CATEGORIES[self.category]
         output = path / f"{name}.blend"
@@ -242,7 +250,7 @@ class MPFBTOOLS_OT_select_asset(bpy.types.Operator):
         if not any(path.name == self.asset_id for path, _ in entries(directory(context), self.category)):
             self.report({"ERROR"}, "Die Vorlage ist im aktuellen Vorlagenordner nicht verfügbar.")
             return {"CANCELLED"}
-        getattr(context.scene, f"mpfb_tools_{self.category}").selected_id = self.asset_id
+        generator_settings(context.scene, self.category).selected_id = self.asset_id
         if context.area:
             context.area.tag_redraw()
         return {"FINISHED"}
@@ -384,6 +392,7 @@ class SidebarPanel:
 
 class MPFBTOOLS_PT_addons(SidebarPanel, bpy.types.Panel):
     bl_label = "Addons hinzufügen"
+    bl_order = 10
 
     def draw(self, context):
         for category, label in CATEGORIES.items():
@@ -545,6 +554,7 @@ class MPFBTOOLS_PT_hair(SidebarPanel, bpy.types.Panel):
 
 class MPFBTOOLS_PT_mesh(SidebarPanel, bpy.types.Panel):
     bl_label = "Mesh-Operationen"
+    bl_order = 20
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
@@ -553,6 +563,7 @@ class MPFBTOOLS_PT_mesh(SidebarPanel, bpy.types.Panel):
 
 class MPFBTOOLS_PT_print(SidebarPanel, bpy.types.Panel):
     bl_label = "Vorbereitung 3D-Druck"
+    bl_order = 30
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
@@ -561,6 +572,7 @@ class MPFBTOOLS_PT_print(SidebarPanel, bpy.types.Panel):
 
 class MPFBTOOLS_PT_generate(SidebarPanel, bpy.types.Panel):
     bl_label = "Generieren"
+    bl_order = 40
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
@@ -569,7 +581,7 @@ class MPFBTOOLS_PT_generate(SidebarPanel, bpy.types.Panel):
             box.label(text=label)
             if category not in (BODY, SHOES):
                 continue
-            settings = getattr(context.scene, f"mpfb_tools_{category}")
+            settings = generator_settings(context.scene, category)
             box.prop(settings, "asset_name")
             box.prop(settings, "filepath")
             row = box.row(align=True)
@@ -593,16 +605,33 @@ CLASSES = (
 )
 
 
+@persistent
+def migrate_scene_settings(_filepath=None):
+    for scene in bpy.data.scenes:
+        for prefix, old_key in library_ui.LEGACY_GROOM_SELECTIONS.items():
+            key = library_ui.SELECTIONS[prefix]
+            if key not in scene and isinstance(value := scene.get(old_key), str):
+                setattr(scene, key, value)
+        for category in GENERATOR_SETTINGS:
+            legacy = scene.get(f"mpfb_tools_{category}")
+            if legacy is None or not hasattr(legacy, "get"):
+                continue
+            settings = generator_settings(scene, category)
+            for field in ("selected_id", "asset_name", "filepath"):
+                if field not in settings and isinstance(value := legacy.get(field), str):
+                    settings[field] = value
+
+
 def register():
     previews.register()
     for cls in CLASSES:
         bpy.utils.register_class(cls)
-    bpy.types.Scene.mpfb_tools_hairstyle = bpy.props.StringProperty()
-    bpy.types.Scene.mpfb_tools_beard = bpy.props.StringProperty()
-    bpy.types.Scene.mpfb_tools_eyebrow = bpy.props.StringProperty()
-    for category in (BODY, SHOES):
-        setattr(bpy.types.Scene, f"mpfb_tools_{category}",
-                bpy.props.PointerProperty(type=MPFBTOOLS_GeneratorSettings))
+    for prefix in library_ui.LEGACY_GROOM_SELECTIONS:
+        setattr(bpy.types.Scene, library_ui.SELECTIONS[prefix], bpy.props.StringProperty())
+    for key in GENERATOR_SETTINGS.values():
+        setattr(bpy.types.Scene, key, bpy.props.PointerProperty(type=MPFBTOOLS_GeneratorSettings))
+    bpy.app.handlers.load_post.append(migrate_scene_settings)
+    bpy.app.timers.register(migrate_scene_settings, persistent=True)
     hair_binding.register()
     library_ui.register()
 
@@ -610,11 +639,13 @@ def register():
 def unregister():
     library_ui.unregister()
     hair_binding.unregister()
-    del bpy.types.Scene.mpfb_tools_eyebrow
-    del bpy.types.Scene.mpfb_tools_beard
-    del bpy.types.Scene.mpfb_tools_hairstyle
+    if bpy.app.timers.is_registered(migrate_scene_settings):
+        bpy.app.timers.unregister(migrate_scene_settings)
+    bpy.app.handlers.load_post.remove(migrate_scene_settings)
+    for prefix in library_ui.LEGACY_GROOM_SELECTIONS:
+        delattr(bpy.types.Scene, library_ui.SELECTIONS[prefix])
     previews.unregister()
-    for category in (BODY, SHOES):
-        delattr(bpy.types.Scene, f"mpfb_tools_{category}")
+    for key in GENERATOR_SETTINGS.values():
+        delattr(bpy.types.Scene, key)
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

@@ -13,8 +13,10 @@ from . import catalog, library_backup, previews, saved_assets
 
 ITEMS = [(key, label, "") for key, label in catalog.GROOMS.items()]
 ITEMS.append((catalog.CHARACTERS, "Figuren", ""))
-SELECTIONS = {"H": "mpfb_tools_hairstyle", "B": "mpfb_tools_beard", "A": "mpfb_tools_eyebrow",
-              catalog.CHARACTERS: "mpfb_tools_figure_id"}
+LEGACY_GROOM_SELECTIONS = {"H": "mpfb_tools_hairstyle", "B": "mpfb_tools_beard", "A": "mpfb_tools_eyebrow"}
+SELECTIONS = {prefix: key.replace("mpfb_tools_", "mpfb_tools_library_", 1)
+              for prefix, key in LEGACY_GROOM_SELECTIONS.items()}
+SELECTIONS[catalog.CHARACTERS] = "mpfb_tools_figure_id"
 ERRORS = (OSError, ValueError, RuntimeError, KeyError, ImportError)
 
 
@@ -290,7 +292,7 @@ class MPFBTOOLS_PT_characters(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "MPFB-Tools"
-    bl_order = -100
+    bl_order = 0
 
     def draw(self, context):
         self.layout.operator("mpfb_tools.load_character", text="Standard-Figur hinzufügen", icon="ARMATURE_DATA").standard = True
