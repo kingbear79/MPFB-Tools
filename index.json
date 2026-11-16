@@ -7,7 +7,7 @@
       "id": "mpfb_tools",
       "name": "MPFB-Tools",
       "tagline": "Manage reusable figures, grooms and assets for MPFB",
-      "version": "2.0.1",
+      "version": "2.1.0",
       "type": "add-on",
       "maintainer": "MPFB-Tools contributors",
       "license": [
@@ -15,14 +15,15 @@
       ],
       "blender_version_min": "4.5.0",
       "permissions": {
-        "files": "Read and write the user-selected asset library and backups"
+        "files": "Read reference images and manage the local asset library",
+        "network": "Analyze selected reference images with the OpenAI API"
       },
       "tags": [
         "Object"
       ],
-      "archive_url": "./mpfb_tools-2.0.1.zip",
-      "archive_size": 3177743,
-      "archive_hash": "sha256:c0a359e86edc8924ceb61cbc6d0e89ce0f3d515cfef96d6ad39ecc890a96f6aa"
+      "archive_url": "./mpfb_tools-2.1.0.zip",
+      "archive_size": 3190899,
+      "archive_hash": "sha256:16f136d3935321bed02141f2cab8ca9ebfad83114a6587e69f23bac21c598650"
     }
   ]
 }
