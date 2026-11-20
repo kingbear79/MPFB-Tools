@@ -1,4 +1,5 @@
 """Standalone figure and groom libraries built from Blender datablocks."""
+import ast
 import json
 from pathlib import Path
 import subprocess
@@ -168,6 +169,31 @@ def save_character(context, body, output):
         bpy.data.collections.remove(collection)
 
 
+def activate_rigify_ui(objects):
+    """Register the generated Rigify interface after appending its character."""
+    for rig in objects:
+        if rig.type != "ARMATURE" or not (rig_id := rig.data.get("rig_id")):
+            continue
+        panel = bpy.types.Panel.bl_rna_get_subclass_py("VIEW3D_PT_rig_layers_" + rig_id)
+        main = bpy.types.Panel.bl_rna_get_subclass_py("VIEW3D_PT_rig_ui_" + rig_id)
+        if panel is not None and main is not None:
+            continue
+        text = rig.get("rig_ui")
+        if not isinstance(text, bpy.types.Text):
+            raise ValueError(f"Dem Rig „{rig.name}“ fehlt sein Rigify-Bedienskript.")
+        code = text.as_string()
+        syntax = ast.parse(code, filename=text.name)
+        script_id = next((node.value.value for node in syntax.body
+                          if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+                          and any(isinstance(target, ast.Name) and target.id == "rig_id"
+                                  for target in node.targets)), None)
+        if script_id != rig_id:
+            raise ValueError(f"Das Rigify-Bedienskript passt nicht zum Rig „{rig.name}“.")
+        # Rigify attaches this Text directly to the rig. Append loads the Text
+        # dependency but does not run its panel and IK/FK registrations.
+        exec(compile(code, text.name, "exec"), {"__name__": "__mpfb_tools_rig_ui__"})
+
+
 def append_character(context, path, meta):
     existing = set(bpy.data.user_map())
     try:
@@ -185,6 +211,7 @@ def append_character(context, path, meta):
         collection.name = meta["name"]
         body = bases[0]
         context.view_layer.update()
+        activate_rigify_ui(collection.all_objects)
         select_figure(context, body.parent or body, body)
         return body
     except Exception:
