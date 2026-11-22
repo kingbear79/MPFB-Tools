@@ -9,8 +9,9 @@ import uuid
 import bpy
 import numpy as np
 
-from . import library_backup, saved_assets
-from .hair import object_type
+from . import hair_binding, library_backup, saved_assets
+from .hair import TEMPLATE, object_type
+from .library import topology
 
 
 # Bare ARKit names are kept in saved expressions; MPFB's expression keys use !ex-.
@@ -68,6 +69,57 @@ PRESETS = {
 }
 ERRORS = (ImportError, OSError, RuntimeError, ValueError, TypeError, KeyError)
 _enum_cache = {}
+# ARKit targets address the complete hm08 basemesh, including helper vertices.
+BASE_VERTEX_COUNT = 19158
+FACIAL_ASSET_TYPES = {"proxymesh", "proxymeshes", "eyes", "teeth", "tongue", "eyebrows", "eyelashes"}
+
+
+def is_source_body(obj):
+    # Separating helper geometry copies the Basemesh properties onto clothing.
+    # Those tags alone must never make a garment a facial animation source.
+    return (isinstance(obj, bpy.types.Object) and obj.type == "MESH" and object_type(obj) == "basemesh"
+            and len(obj.data.vertices) == BASE_VERTEX_COUNT)
+
+
+def related_rigs(obj):
+    rigs = set()
+    while obj is not None:
+        if obj.type == "ARMATURE":
+            rigs.add(obj)
+            target = getattr(obj.data, "rigify_target_rig", None)
+            if target is not None:
+                rigs.add(target)
+        rigs.update(mod.object for mod in obj.modifiers if mod.type == "ARMATURE" and mod.object is not None)
+        obj = obj.parent
+    return rigs
+
+
+def source_body(scene, selected):
+    if selected is None:
+        raise ValueError("Wähle die Figur, ihr Rig oder ihre Körpertopologie aus.")
+    if selected.type == "CURVES":
+        selected = hair_binding.mesh_surface(selected) or selected
+    obj = selected
+    while obj is not None:
+        if is_source_body(obj):
+            return obj
+        owner = obj.get(saved_assets.OWNER)
+        if is_source_body(owner) and owner.name in scene.objects:
+            return owner
+        obj = obj.parent
+    rigs = related_rigs(selected)
+    matches = [obj for obj in scene.objects if is_source_body(obj) and related_rigs(obj) & rigs]
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        raise ValueError("Mehrere vollständige MPFB-Körper gefunden. Wähle das gewünschte Basis-Mesh direkt aus.")
+    raise ValueError("Das vollständige MPFB-Basis-Mesh der Figur fehlt. Die Körpertopologie benötigt es als Mimikquelle.")
+
+
+def facial_targets(scene, body):
+    return sorted((obj for obj in saved_assets.owned_objects(scene, body)
+                   if obj != body and obj.type == "MESH" and object_type(obj) in FACIAL_ASSET_TYPES
+                   and not obj.get("mpfb_tools_hair_surface")), key=lambda obj: obj.name)
 
 
 def expression_folder(context):
@@ -78,7 +130,7 @@ def expression_folder(context):
 def selected_body(context):
     if context.mode not in {"OBJECT", "POSE"}:
         raise ValueError("Wechsle in den Objekt- oder Pose-Modus.")
-    body = saved_assets.figure_base(context, context.active_object)
+    body = source_body(context.scene, context.active_object)
     if body.library or body.data.library:
         raise ValueError("Für diese verknüpfte Figur zuerst einen Library Override erstellen.")
     if shared_mesh(body):
@@ -196,18 +248,19 @@ def prepare(context, body):
     from bl_ext.blender_org.mpfb.services import ClothesService, TargetService
     from bl_ext.blender_org.mpfb.entities.clothes.mhclo import Mhclo
 
+    if not is_source_body(body) or topology(body.data) != json.loads(TEMPLATE.read_text())["topology"]:
+        raise ValueError("Die Mimik benötigt das vollständige MPFB-Basis-Mesh mit unveränderter Topologie als Quelle.")
     if shared_mesh(body):
         raise ValueError("Das Körpermesh wird von mehreren Figuren geteilt. Erstelle zuerst eine unabhängige Kopie.")
     missing = [(name, TargetService.target_full_path(name)) for name in UNITS if unit_key(body, name) is None]
     if any(path is None for _name, path in missing):
         raise ValueError("Installiere das MPFB-Asset-Paket „faceunits01“ vollständig und versuche es erneut.")
     assets = []
-    for obj in sorted(saved_assets.owned_objects(context.scene, body), key=lambda obj: obj.name):
-        if obj == body or obj.type != "MESH" or not object_type(obj) or obj.get("mpfb_tools_hair_surface"):
-            continue
+    for obj in facial_targets(context.scene, body):
         path = ClothesService.find_clothes_absolute_path(obj)
         if not path:
-            raise ValueError(f"Die MPFB-Quelldatei für „{obj.name}“ fehlt. Lade das zugehörige Asset-Paket.")
+            raise ValueError(f"Die MPFB-Zuordnung für das Gesichts- oder Topologieobjekt „{obj.name}“ fehlt. "
+                             "Lade das zugehörige Asset-Paket.")
         mapping = Mhclo()
         mapping.load(path)
         assets.append((obj, mapping.verts))

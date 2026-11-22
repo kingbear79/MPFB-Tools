@@ -17,7 +17,11 @@ Wähle **Fröhlich**, **Traurig**, **Wütend**, **Überrascht** oder **Skeptisch
 
 Für Animationen die Mimik einstellen und **Mimik-Keyframe** drücken. Der Button setzt alle 52 Gesichtswerte am aktuellen Frame, auch Nullwerte. Danach zum nächsten Frame wechseln, die Mimik ändern und erneut einen Keyframe setzen. Einzelne Gesichtsformen unter **Mimik im Detail** unterstützen außerdem Blenders normale Keyframe-Funktionen. Die Schnellregler zeigen den aktuellen Mittelwert beider Seiten; eine Änderung setzt beide Seiten auf denselben Wert.
 
-Nach dem Hinzufügen weiterer MPFB-Meshes **Mimik im Detail → Anbauteile aktualisieren** verwenden. Die zugehörigen MPFB-Quelldateien müssen verfügbar sein. Manuell hinzugefügte Meshes ohne MPFB-Zuordnung werden nicht automatisch verformt. Geteilte Meshes müssen vor der Vorbereitung unabhängig gemacht werden. Ausgeprägte Gesichtsposen auf den Rigify-Bones können sich mit den Shape Keys überlagern.
+Nach dem Hinzufügen weiterer Gesichtsteile **Mimik im Detail → Anbauteile aktualisieren** verwenden. Übertragen werden nur die Körpertopologie sowie MPFB-Augen, Zähne, Zunge, Augenbrauen und Wimpern. Kleidung und andere Anbauten erhalten keine Mimik und benötigen hierfür keine MPFB-Quelldatei. Das gilt auch für Kleidung, die aus Helper-Geometrie abgetrennt wurde und noch die geerbte MPFB-Kennung „Basemesh“ trägt.
+
+Bei einer Körpertopologie wie **Male Muscle** kann die sichtbare Topologie oder das Rig ausgewählt werden. Das vollständige ursprüngliche Basis-Mesh bleibt die Mimikquelle und darf verborgen sein. Die Körpererkennung berücksichtigt die vollständige Vertexzahl; vor der Vorbereitung wird zusätzlich die ursprüngliche MPFB-Topologie geprüft. Das Basis-Mesh darf deshalb nicht gelöscht oder durch das Entfernen seiner Helper-Vertices verändert werden. Für die Übertragung auf die Körpertopologie und Gesichtsteile müssen deren MPFB-Quelldateien verfügbar sein.
+
+Manuell hinzugefügte Meshes ohne MPFB-Zuordnung werden nicht automatisch verformt. Geteilte Meshes müssen vor der Vorbereitung unabhängig gemacht werden. Ausgeprägte Gesichtsposen auf den Rigify-Bones können sich mit den Shape Keys überlagern.
 
 ## Installation und Updates
 

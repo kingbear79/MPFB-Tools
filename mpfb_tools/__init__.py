@@ -2,7 +2,7 @@
 
 bl_info = {
     "name": "MPFB-Tools",
-    "version": (2, 4, 0),
+    "version": (2, 4, 1),
     "blender": (4, 5, 0),
     "location": "3D View > Sidebar > MPFB-Tools",
     "category": "Object",

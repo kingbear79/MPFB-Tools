@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import bpy
 from mathutils import Vector
@@ -13,6 +15,8 @@ from mpfb_tools import mimic, saved_assets
 
 addon.register()
 assert len(mimic.UNITS) == len(set(mimic.UNITS)) == 52
+# A miniature basemesh lets the standalone tests run without MPFB asset packs.
+mimic.BASE_VERTEX_COUNT = 3
 
 
 def figure(name):
@@ -131,6 +135,83 @@ bpy.context.scene.frame_set(6)
 bpy.context.view_layer.update()
 assert abs(body.mpfb_tools_mimic.jaw - .5) < 1e-5
 assert abs(target.value - .5) < 1e-5
+
+# Helper-derived clothes inherit Basemesh tags, but are neither a source nor a target.
+rig = bpy.data.objects.new("Figure rig", bpy.data.armatures.new("Figure rig"))
+bpy.context.collection.objects.link(rig)
+body.parent = rig
+clothing_mesh = bpy.data.meshes.new("Helper clothing")
+clothing_mesh.from_pydata([(0, 0, 0)], [], [])
+clothing = bpy.data.objects.new("Kleidung.002", clothing_mesh)
+bpy.context.collection.objects.link(clothing)
+clothing.parent = rig
+clothing["MPFB_GEN_object_type"] = "Basemesh"
+clothing["MPFB_HUM_is_human_project"] = True
+child.parent = rig
+child["MPFB_GEN_object_type"] = "Proxymeshes"
+body.hide_set(True)
+assert mimic.source_body(bpy.context.scene, child) == body
+assert mimic.source_body(bpy.context.scene, rig) == body
+assert mimic.source_body(bpy.context.scene, clothing) == body
+assert mimic.facial_targets(bpy.context.scene, body) == [child]
+assert not mimic.is_source_body(clothing)
+body.hide_viewport = True
+bpy.context.scene.frame_set(1)
+bpy.context.view_layer.update()
+assert abs(target.value) < 1e-5
+bpy.context.scene.frame_set(11)
+bpy.context.view_layer.update()
+assert abs(target.value - 1) < 1e-5
+body.hide_viewport = False
+bpy.context.scene.frame_set(6)
+
+# Genuine clothes with valid metadata are excluded as well, even around the head.
+clothing["MPFB_GEN_object_type"] = "Clothes"
+assert mimic.facial_targets(bpy.context.scene, body) == [child]
+body.hide_set(False)
+
+# Preparation must never request an MHCLO file for helper-derived clothes.
+clothing["MPFB_GEN_object_type"] = "Basemesh"
+clothing.shape_key_add(name="Basis")
+clothing.shape_key_add(name="head-scale-horiz-incr").value = .4
+requested = []
+
+
+def find_mapping(obj):
+    assert obj == child, "Non-facial clothing was included in MHCLO discovery"
+    requested.append(obj)
+    return "topology.proxy"
+
+
+class Mapping:
+    def load(self, path):
+        assert path == "topology.proxy"
+        self.verts = mapping
+
+
+services = SimpleNamespace(ClothesService=SimpleNamespace(find_clothes_absolute_path=find_mapping),
+                           TargetService=SimpleNamespace())
+with TemporaryDirectory() as temporary:
+    reference = Path(temporary) / "basemesh.json"
+    reference.write_text(json.dumps({"topology": mimic.topology(body.data)}))
+    with patch.object(mimic, "TEMPLATE", reference), patch.dict(sys.modules, {
+        "bl_ext.blender_org.mpfb.services": services,
+        "bl_ext.blender_org.mpfb.entities.clothes.mhclo": SimpleNamespace(Mhclo=Mapping),
+    }):
+        assert mimic.prepare(bpy.context, body) == 1
+        assert requested == [child]
+        assert len(clothing.data.shape_keys.key_blocks) == 2
+        assert clothing.data.shape_keys.key_blocks["head-scale-horiz-incr"].value > .39
+        assert clothing.data.shape_keys.animation_data is None
+        requested.clear()
+        reference.write_text(json.dumps({"topology": "modified topology"}))
+        try:
+            mimic.prepare(bpy.context, body)
+        except ValueError as error:
+            assert "Topologie" in str(error)
+        else:
+            raise AssertionError("Modified source topology was accepted")
+        assert requested == []
 
 addon.unregister()
 assert not hasattr(bpy.types.Object, "mpfb_tools_mimic")
