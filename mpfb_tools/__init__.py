@@ -2,7 +2,7 @@
 
 bl_info = {
     "name": "MPFB-Tools",
-    "version": (2, 3, 2),
+    "version": (2, 4, 0),
     "blender": (4, 5, 0),
     "location": "3D View > Sidebar > MPFB-Tools",
     "category": "Object",
@@ -20,7 +20,7 @@ import subprocess
 import bpy
 from bpy.app.handlers import persistent
 
-from . import catalog, cloud_ui, hair_binding, library_backup, library_ui, previews, saved_assets
+from . import catalog, cloud_ui, hair_binding, library_backup, library_ui, mimic, previews, saved_assets
 from .attachment import append_body, figure_surface
 from .footwear import append_boots
 from .shoe_fit import MPFBTOOLS_OT_refit_shoes
@@ -603,6 +603,7 @@ CLASSES = (
     MPFBTOOLS_PT_body_gallery, MPFBTOOLS_PT_shoe_gallery, MPFBTOOLS_OT_refit_shoes,
     *library_ui.CLASSES,
     *cloud_ui.CLASSES,
+    *mimic.CLASSES,
 )
 
 
@@ -636,9 +637,11 @@ def register():
     hair_binding.register()
     library_ui.register()
     cloud_ui.register()
+    mimic.register()
 
 
 def unregister():
+    mimic.unregister()
     cloud_ui.unregister()
     library_ui.unregister()
     hair_binding.unregister()
